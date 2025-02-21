@@ -259,4 +259,41 @@ exports.getSessions = async (req, res) => {
     console.error("Error fetching sessions:", error);
     res.status(500).json({ error: "Failed to fetch sessions" });
   }
+};
+
+exports.deleteSession = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Session ID is required'
+      });
+    }
+
+    const sessionDir = await ensureSessionDirectory();
+    const sessionFile = path.join(sessionDir, `${id}.json`);
+    
+    try {
+      await fs.access(sessionFile);
+      await fs.unlink(sessionFile);
+      res.json({ success: true, message: 'Session deleted successfully' });
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        return res.status(404).json({
+          error: 'Not Found',
+          message: 'Session not found'
+        });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('Error deleting session:', err);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to delete session',
+      details: err.message
+    });
+  }
 }; 

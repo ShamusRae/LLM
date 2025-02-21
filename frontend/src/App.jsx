@@ -302,7 +302,7 @@ const AppRoutes = () => {
             body: JSON.stringify({
               message: messageText,
               sessionId,
-              avatarId: selectedAvatar.id, // Always send the specific avatar ID
+              avatarId: selectedAvatar.id,
               activeAvatars,
               selectedFiles,
               chatHistory: [
@@ -343,6 +343,14 @@ const AppRoutes = () => {
         }
         currentRound++;
       }
+
+      // After all responses are complete, save the session
+      try {
+        await saveSession();
+      } catch (error) {
+        console.error('Error saving session after conversation:', error);
+        // Don't throw here - we don't want to interrupt the chat flow if saving fails
+      }
       
     } catch (error) {
       console.error('Error in handleSendMessage:', error);
@@ -366,10 +374,11 @@ const AppRoutes = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: sessionId,
-          timestamp: new Date().toISOString(),
           messages,
           activeAvatars,
           selectedFiles,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
         })
       });
       
@@ -502,6 +511,7 @@ const AppRoutes = () => {
             <div className="bg-white rounded-lg border shadow-sm">
               <SessionHistory 
                 onSessionLoad={handleSessionLoad}
+                sessionId={sessionId}
                 key={sessionId}
               />
             </div>
