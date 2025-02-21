@@ -249,11 +249,36 @@ exports.getSessions = async (req, res) => {
     const sessionDir = await ensureSessionDirectory();
     const files = await fs.readdir(sessionDir);
     const sessions = [];
+    
     for (const file of files) {
-      const filePath = path.join(sessionDir, file);
-      const data = await fs.readFile(filePath, 'utf8');
-      sessions.push(JSON.parse(data));
+      // Only process .json files
+      if (!file.endsWith('.json')) continue;
+      
+      try {
+        const filePath = path.join(sessionDir, file);
+        const data = await fs.readFile(filePath, 'utf8');
+        
+        // Skip empty files
+        if (!data.trim()) continue;
+        
+        try {
+          const session = JSON.parse(data);
+          // Validate session data has required fields
+          if (session && session.id) {
+            sessions.push(session);
+          }
+        } catch (parseError) {
+          console.error(`Error parsing session file ${file}:`, parseError);
+          // Continue with other files if one fails to parse
+          continue;
+        }
+      } catch (readError) {
+        console.error(`Error reading session file ${file}:`, readError);
+        // Continue with other files if one fails to read
+        continue;
+      }
     }
+    
     res.json(sessions);
   } catch (error) {
     console.error("Error fetching sessions:", error);

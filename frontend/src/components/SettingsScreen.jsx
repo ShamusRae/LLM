@@ -86,7 +86,7 @@ const SettingsScreen = () => {
     };
 
     try {
-      await axios.post('http://localhost:3001/api/settings', settings);
+      await axios.put('http://localhost:3001/api/settings', settings);
       navigate('/');
     } catch (err) {
       console.error('Error saving settings:', err);

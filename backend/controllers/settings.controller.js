@@ -61,8 +61,20 @@ exports.getSettings = async (req, res) => {
 exports.updateSettings = async (req, res) => {
   try {
     await initializeSettings();
-    const settings = req.body;
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+    
+    // Read existing settings
+    const existingSettings = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
+    
+    // Merge new settings with existing settings, preserving arrays like avatars
+    const newSettings = {
+      ...existingSettings,
+      ...req.body,
+      // Preserve arrays if they exist in current settings but not in new settings
+      avatars: existingSettings.avatars || [],
+      memory: req.body.memory || existingSettings.memory || []
+    };
+    
+    await fs.writeFile(settingsPath, JSON.stringify(newSettings, null, 2));
     res.json({ message: 'Settings updated successfully' });
   } catch (error) {
     console.error('Error updating settings:', error);

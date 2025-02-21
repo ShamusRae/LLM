@@ -6,6 +6,7 @@ import FileList from './components/FileList';
 import SessionHistory from './components/SessionHistory';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import SettingsScreen from './components/SettingsScreen';
+import axios from 'axios';
 
 // NewChatButton component
 const NewChatButton = ({ onClick }) => (
@@ -115,12 +116,38 @@ const AppRoutes = () => {
   const streamingContent = useRef({});
   const messageStreamingStates = useRef(new Map());
 
+  // Load initial session and avatars
   useEffect(() => {
-    // On initial load, if the current path is not '/', redirect to '/'
-    if (location.pathname !== '/') {
-      navigate('/', { replace: true });
-    }
-  }, [location, navigate]);
+    const loadInitialData = async () => {
+      try {
+        // Load settings to get avatars
+        const settingsResponse = await axios.get('http://localhost:3001/api/settings');
+        if (settingsResponse.data?.avatars) {
+          // Set first avatar as active by default
+          setActiveAvatars([settingsResponse.data.avatars[0]]);
+        }
+
+        // Load most recent session if it exists
+        const sessionsResponse = await axios.get('http://localhost:3001/api/chat/sessions');
+        if (sessionsResponse.data && sessionsResponse.data.length > 0) {
+          // Sort sessions by date and get most recent
+          const sortedSessions = sessionsResponse.data.sort((a, b) => 
+            new Date(b.updatedAt) - new Date(a.updatedAt)
+          );
+          const mostRecent = sortedSessions[0];
+          
+          setSessionId(mostRecent.id);
+          setMessages(mostRecent.messages || []);
+          setActiveAvatars(mostRecent.activeAvatars || [settingsResponse.data.avatars[0]]);
+          setSelectedFiles(mostRecent.selectedFiles || []);
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+      }
+    };
+
+    loadInitialData();
+  }, []);
 
   const handleAvatarToggle = (updatedAvatars) => {
     setActiveAvatars(updatedAvatars);
@@ -542,8 +569,8 @@ const App = () => {
         </nav>
       </header>
       <Routes>
-        <Route path="/settings" element={<SettingsScreen />} />
         <Route path="/" element={<AppRoutes />} />
+        <Route path="/settings" element={<SettingsScreen />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

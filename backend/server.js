@@ -133,8 +133,8 @@ const chatRoutes = require('./routes/chat.routes');
 
 // Register routes
 app.use('/api/file', fileRoutes);
-app.use('/api/settings', settingsRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Import the chooseAvatar controller
 const chooseAvatarController = require('./controllers/chooseAvatar.controller');
@@ -142,27 +142,10 @@ const chooseAvatarController = require('./controllers/chooseAvatar.controller');
 // Add the choose-avatar endpoint
 app.post('/api/choose-avatar', chooseAvatarController.chooseAvatar);
 
-// API Routes
-app.get('/api/chat/sessions', async (req, res) => {
-  try {
-    const sessionDir = path.join(__dirname, '../storage/sessions');
-    const files = await fs.readdir(sessionDir);
-    const sessions = [];
-    
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
-      const filePath = path.join(sessionDir, file);
-      const data = await fs.readFile(filePath, 'utf8');
-      sessions.push(JSON.parse(data));
-    }
-    
-    res.json(sessions);
-  } catch (error) {
-    console.error("Error fetching sessions:", error);
-    res.status(500).json({ error: "Failed to fetch sessions" });
-  }
-});
+// Import the chat controller
+const chatController = require('./controllers/chat.controller');
 
+// API Routes
 app.post('/api/chat/send', async (req, res) => {
   const { message, sessionId, avatarId, avatarInfo } = req.body;
   console.log('Received message:', message);

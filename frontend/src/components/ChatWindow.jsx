@@ -151,86 +151,60 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
     return match ? match[1] || match[0] : null;
   };
 
-  // Update the parseTable function to be more robust
+  // Helper function to parse markdown tables
   const parseTable = (tableText) => {
-    console.log('Raw table text:', tableText);
-    
-    // First, clean up the text
-    const cleanText = tableText
-      .replace(/,\[object Object\],?/g, '') // Remove object Object markers
-      .replace(/^\s*,/gm, '') // Remove leading commas
-      .replace(/,\s*$/gm, '') // Remove trailing commas
-      .replace(/\|\s*\|/g, '|') // Clean up empty cells
-      .trim();
-
-    const lines = cleanText.split('\n')
+    // Split into lines and remove empty ones
+    const lines = tableText.split('\n')
       .map(line => line.trim())
-      .filter(line => line.length > 0 && line.includes('|'));
+      .filter(line => line && line.includes('|'));
 
-    if (lines.length < 3) {
-      console.log('Table too short:', lines.length);
-      return null;
-    }
+    if (lines.length < 3) return null;
 
-    // Parse headers - handle both normal text and React elements
+    // Process headers
     const headerLine = lines[0];
     const headers = headerLine
       .split('|')
       .map(cell => cell.trim())
-      .filter(cell => cell.length > 0)
+      .filter(Boolean)
       .map(cell => {
+        // Handle both string and React element cases
         if (typeof cell === 'object' && cell !== null) {
-          return cell.props?.children || '';
+          return String(cell.props?.children || '');
         }
         return cell;
       });
 
-    // Verify separator line
+    // Validate separator line
     const separatorLine = lines[1];
-    if (!separatorLine.includes('|-') && !separatorLine.includes('-|')) {
-      console.log('Invalid separator line:', separatorLine);
-      return null;
-    }
+    const isValidSeparator = separatorLine
+      .split('|')
+      .some(cell => cell.trim().startsWith('-'));
 
-    // Parse rows - handle both normal text and React elements
+    if (!isValidSeparator) return null;
+
+    // Process data rows
     const rows = lines.slice(2)
-      .map(line => {
-        const cells = line
-          .split('|')
-          .map(cell => cell.trim())
-          .filter(cell => cell.length > 0)
-          .map(cell => {
-            if (typeof cell === 'object' && cell !== null) {
-              return cell.props?.children || '';
-            }
-            return cell;
-          });
-        return cells;
-      })
-      .filter(row => row.length > 0); // Remove empty rows
+      .map(line => line
+        .split('|')
+        .map(cell => cell.trim())
+        .filter(Boolean)
+        .map(cell => {
+          if (typeof cell === 'object' && cell !== null) {
+            return String(cell.props?.children || '');
+          }
+          return cell;
+        }))
+      .filter(row => row.length === headers.length);
 
-    console.log('Parsed table:', { headers, rows });
     return { headers, rows };
   };
 
-  // Update the MarkdownTable component
   const MarkdownTable = ({ children }) => {
-    console.log('MarkdownTable received:', children);
-    const tableText = Array.isArray(children) ? children.join('\n') : children.toString();
-    
-    // Clean up the table text
-    const cleanedText = tableText
-      .replace(/,\[object Object\],?/g, '') // Remove [object Object]
-      .replace(/\|\s*\|/g, '|') // Remove empty cells
-      .split('\n')
-      .filter(line => line.trim() && !line.trim().startsWith(',') && line.includes('|')) // Remove empty lines and invalid rows
-      .join('\n');
-
-    const parsedTable = parseTable(cleanedText);
+    const tableText = Array.isArray(children) ? children.join('\n') : String(children);
+    const parsedTable = parseTable(tableText);
     
     if (!parsedTable) {
-      console.log('Failed to parse table, returning raw text');
-      return <pre>{cleanedText}</pre>;
+      return <pre className="whitespace-pre-wrap break-words">{tableText}</pre>;
     }
 
     return (
@@ -249,7 +223,7 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
             {parsedTable.rows.map((row, i) => (
               <tr key={i} className="hover:bg-gray-50">
                 {row.map((cell, j) => (
-                  <td key={j} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td key={j} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {cell}
                   </td>
                 ))}
@@ -494,15 +468,29 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
         const endIndex = modifiedText.indexOf(endMarker, startIndex);
         if (endIndex === -1) break;
 
-        // Extract everything between markers and clean up whitespace
-        const graphJson = modifiedText
+        // Extract everything between markers and clean up whitespace and special characters
+        let graphJson = modifiedText
           .slice(startIndex + startMarker.length, endIndex)
           .replace(/^\s*\n/, '') // Remove first newline
           .replace(/\n\s*$/, '') // Remove last newline
+          .replace(/^\s*\*+\s*/, '') // Remove leading asterisks
+          .replace(/\s*\*+\s*$/, '') // Remove trailing asterisks
           .trim();
 
         try {
+          // Clean up the JSON string
+          graphJson = graphJson.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":'); // Ensure proper JSON property quotes
+          graphJson = graphJson.replace(/(\d+)k/g, '$1000'); // Convert 'k' suffix to actual numbers
+          
           const graphData = JSON.parse(graphJson);
+          
+          // Validate required properties
+          if (!graphData.type || !graphData.data || !graphData.data.datasets) {
+            console.warn('Invalid graph data structure:', graphData);
+            currentIndex = endIndex + endMarker.length;
+            continue;
+          }
+          
           graphs.push(graphData);
           
           // Replace the graph JSON with a placeholder
@@ -639,11 +627,23 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
               )}
             </div>
             {message.metadata.isUser && (
-              <div 
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 ${getAvatarColor(true)}`}
-                title="You"
-              >
-                {userDetails.name ? getInitials(userDetails.name) : 'U'}
+              <div className="flex-shrink-0">
+                {userDetails.imageUrl ? (
+                  <img 
+                    src={getAvatarImageUrl(userDetails.imageUrl)} 
+                    alt="You" 
+                    className="w-8 h-8 rounded-full object-cover" 
+                    title={userDetails.name || "You"}
+                    onError={(e) => handleImageError(e, "User")}
+                  />
+                ) : (
+                  <div 
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 ${getAvatarColor(true)}`}
+                    title={userDetails.name || "You"}
+                  >
+                    {userDetails.name ? getInitials(userDetails.name) : 'U'}
+                  </div>
+                )}
               </div>
             )}
           </div>
