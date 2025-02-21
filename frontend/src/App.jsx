@@ -461,59 +461,61 @@ const AppRoutes = () => {
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <div className="grid grid-cols-4 gap-4">
-        {/* Left sidebar */}
-        <div className="col-span-1">
-          <div className="flex flex-col space-y-4">
-            <div className="bg-white p-4 rounded-lg border shadow-sm">
-              <NewChatButton onClick={handleNewChat} />
-            </div>
-            <div className="bg-white rounded-lg border shadow-sm">
-              <AvatarList 
-                onAvatarToggle={handleAvatarToggle} 
-                activeAvatars={activeAvatars} 
-              />
-            </div>
-          </div>
-        </div>
-        
-        {/* Main chat area */}
-        <div className="col-span-2">
-          <div className="flex flex-col h-full">
-            <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-lg border shadow-sm">
-              <span className="text-sm text-gray-500">
-                Session ID: {sessionId}
-              </span>
-            </div>
-            <div className="flex-grow">
-              <ChatWindow 
-                messages={messages} 
-                selectedAvatar={activeAvatars[0]} 
-                sessionId={sessionId}
-              />
-            </div>
-            <div className="mt-4">
-              <ChatInput onSendMessage={handleSendMessage} />
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto p-4">
+        <div className="grid grid-cols-4 gap-4">
+          {/* Left sidebar */}
+          <div className="col-span-1">
+            <div className="flex flex-col space-y-4">
+              <div className="bg-white p-4 rounded-lg border shadow-sm pointer-events-auto">
+                <NewChatButton onClick={handleNewChat} />
+              </div>
+              <div className="bg-white rounded-lg border shadow-sm pointer-events-auto">
+                <AvatarList 
+                  onAvatarToggle={handleAvatarToggle} 
+                  activeAvatars={activeAvatars} 
+                />
+              </div>
             </div>
           </div>
-        </div>
-        
-        {/* Right sidebar */}
-        <div className="col-span-1">
-          <div className="flex flex-col space-y-4">
-            <div className="bg-white rounded-lg border shadow-sm">
-              <FileList 
-                ref={fileListRef}
-                onSelectedFilesChange={setSelectedFiles} 
-              />
+          
+          {/* Main chat area */}
+          <div className="col-span-2">
+            <div className="flex flex-col h-full">
+              <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-lg border shadow-sm">
+                <span className="text-sm text-gray-500">
+                  Session ID: {sessionId}
+                </span>
+              </div>
+              <div className="flex-grow">
+                <ChatWindow 
+                  messages={messages} 
+                  selectedAvatar={activeAvatars[0]} 
+                  sessionId={sessionId}
+                />
+              </div>
+              <div className="mt-4">
+                <ChatInput onSendMessage={handleSendMessage} />
+              </div>
             </div>
-            <div className="bg-white rounded-lg border shadow-sm">
-              <SessionHistory 
-                onSessionLoad={handleSessionLoad}
-                sessionId={sessionId}
-                key={sessionId}
-              />
+          </div>
+          
+          {/* Right sidebar */}
+          <div className="col-span-1">
+            <div className="flex flex-col space-y-4">
+              <div className="bg-white rounded-lg border shadow-sm pointer-events-auto">
+                <FileList 
+                  ref={fileListRef}
+                  onSelectedFilesChange={setSelectedFiles} 
+                />
+              </div>
+              <div className="bg-white rounded-lg border shadow-sm pointer-events-auto">
+                <SessionHistory 
+                  onSessionLoad={handleSessionLoad}
+                  sessionId={sessionId}
+                  key={sessionId}
+                />
+              </div>
             </div>
           </div>
         </div>
