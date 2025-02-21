@@ -25,7 +25,7 @@ A modern chat application featuring multiple AI avatars with different personali
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/shay-playing/llm-chat.git
+git clone https://github.com/Engine-B/llm-chat.git
 cd llm-chat
 ```
 
