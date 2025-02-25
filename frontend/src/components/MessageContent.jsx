@@ -113,25 +113,23 @@ const isValidVegaLiteSpec = (spec) => {
 };
 
 // Add a backup minimal spec when validation fails
-const createFallbackSpec = (content) => {
-  // Create a simple text notice as a Vega spec
+const createFallbackSpec = () => {
+  // Create a simple bar chart as a guaranteed-to-work fallback
   return {
     "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
     "description": "Fallback chart - Original specification had errors",
-    "width": 400,
+    "width": "container",
     "height": 200,
     "data": {
-      "values": [{"x": 1, "y": 1}]
+      "values": [
+        {"label": "Error", "value": 1},
+        {"label": "Info", "value": 2}
+      ]
     },
-    "mark": {
-      "type": "text",
-      "align": "center",
-      "baseline": "middle",
-      "fontSize": 14,
-      "fontWeight": "bold"
-    },
+    "mark": "bar",
     "encoding": {
-      "text": {"value": "Error rendering chart: Invalid specification"},
+      "x": {"field": "label", "type": "nominal", "axis": {"title": ""}},
+      "y": {"field": "value", "type": "quantitative", "axis": {"title": ""}},
       "color": {"value": "#cc0000"}
     },
     "background": "#f9f9f9"
@@ -171,18 +169,70 @@ const MessageContent = ({ blocks = [] }) => {
         chartDiv.style.minWidth = '400px';
         chartContainer.appendChild(chartDiv);
         
-        // Log spec for debugging
-        console.log(`Trying to render chart ${index}:`, block.content);
+        // Detailed debugging log of the original chart spec
+        console.log(`Chart ${index} - Original spec:`, JSON.stringify(block.content, null, 2));
         
         // Validate and fix the spec if needed
         let spec = structuredClone(block.content); // Deep clone to avoid modifying original
         let fallbackUsed = false;
         
-        // More detailed logging for debugging
-        console.log(`Received spec (type: ${typeof spec}):`, spec);
+        // Detailed logging of mark property to diagnose the issue
+        if (spec.mark) {
+          console.log(`Chart ${index} - Mark property type: ${typeof spec.mark}`);
+          console.log(`Chart ${index} - Mark value:`, spec.mark);
+          
+          if (typeof spec.mark === 'object') {
+            console.log(`Chart ${index} - Mark.type:`, spec.mark.type);
+          }
+        }
+        
+        // Debug encoding as well if present
+        if (spec.encoding) {
+          console.log(`Chart ${index} - Encoding:`, spec.encoding);
+        }
         
         // Specially handle the config[mark.type][channel] error case
         try {
+          // First, ensure there's a schema
+          spec.$schema = "https://vega.github.io/schema/vega-lite/v5.json";
+          
+          // Force simple x/y encodings if not present
+          if (!spec.encoding) {
+            spec.encoding = {};
+          }
+          
+          // Debug encoding channels in detail
+          if (spec.encoding) {
+            console.log(`Chart ${index} - Examining encoding channels:`);
+            Object.entries(spec.encoding).forEach(([channel, config]) => {
+              console.log(`  - Channel "${channel}": `, config);
+              
+              // Check for common issues with encoding channels
+              if (config && typeof config === 'object') {
+                if (!config.field && !config.value) {
+                  console.warn(`  - Warning: Channel "${channel}" has neither field nor value`);
+                }
+                if (!config.type) {
+                  console.warn(`  - Warning: Channel "${channel}" is missing type`);
+                  // Add default type based on channel
+                  if (['x', 'y', 'theta', 'radius'].includes(channel)) {
+                    config.type = 'quantitative';
+                    console.log(`  - Fixed: Added default quantitative type to ${channel}`);
+                  } else if (['color', 'shape', 'size'].includes(channel)) {
+                    config.type = 'nominal';
+                    console.log(`  - Fixed: Added default nominal type to ${channel}`);
+                  }
+                }
+              }
+            });
+          }
+          
+          // Ensure the encoding has some basic channels 
+          if (!spec.encoding.x && !spec.encoding.y) {
+            // If neither x nor y exists, add a default x
+            spec.encoding.x = { "field": "x", "type": "quantitative" };
+          }
+          
           // Check if mark exists but has issues
           if (spec.mark && typeof spec.mark === 'object' && !spec.mark.type) {
             console.warn('Found mark object without type. Adding default type "bar"');
@@ -195,9 +245,22 @@ const MessageContent = ({ blocks = [] }) => {
             spec.mark = 'bar';
           }
           
-          // Add a schema if missing
-          if (!spec.$schema) {
-            spec.$schema = "https://vega.github.io/schema/vega-lite/v5.json";
+          // If mark is still undefined after all checks, set a default
+          if (!spec.mark) {
+            console.warn('No mark found, adding default bar mark');
+            spec.mark = 'bar';
+          }
+          
+          // Ensure data exists
+          if (!spec.data && !spec.datasets && !spec.url) {
+            console.warn('No data source found, adding minimal dataset');
+            spec.data = {
+              values: [
+                { x: 0, y: 0 },
+                { x: 1, y: 1 },
+                { x: 2, y: 2 }
+              ]
+            };
           }
         } catch (markError) {
           console.error('Error fixing mark:', markError);
@@ -205,7 +268,7 @@ const MessageContent = ({ blocks = [] }) => {
         
         if (!isValidVegaLiteSpec(spec)) {
           console.warn('Invalid Vega-Lite spec, using fallback', spec);
-          spec = createFallbackSpec(spec);
+          spec = createFallbackSpec();
           fallbackUsed = true;
         } else {
           console.log('Valid spec detected, proceeding with render');
@@ -221,7 +284,10 @@ const MessageContent = ({ blocks = [] }) => {
           }
         }
         
-        // Use vegaEmbed with additional config options
+        // Log the final spec that will be used for rendering
+        console.log(`Chart ${index} - Final spec:`, JSON.stringify(spec, null, 2));
+        
+        // Use vegaEmbed with additional config options and error handling
         vegaEmbed(chartDiv, spec, { 
           actions: true,
           theme: 'light',
@@ -236,48 +302,169 @@ const MessageContent = ({ blocks = [] }) => {
           width: spec.width || 'container', // Ensure width is set
           height: spec.height || 250,       // Ensure height is set
           padding: { left: 5, top: 5, right: 5, bottom: 5 }
-        }).catch(error => {
-          console.error('Error rendering Vega-Lite chart:', error);
-          
-          // Check for the specific mark.type error
-          if (error.toString().includes("config[mark.type][channel]")) {
-            console.warn('Detected mark.type configuration error, attempting emergency fix');
+        }).then(() => {
+          // Chart rendered successfully - add a fallback button for complex charts
+          // This allows users to try a simplified version if the chart looks wrong
+          if (spec.layer || (spec.encoding && Object.keys(spec.encoding).length > 3)) {
+            const simplifyButton = document.createElement('button');
+            simplifyButton.className = 'mt-2 p-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200';
+            simplifyButton.textContent = 'View Simple Version';
+            simplifyButton.style.position = 'absolute';
+            simplifyButton.style.bottom = '10px';
+            simplifyButton.style.right = '10px';
             
-            try {
-              // Create an emergency fixed spec with simplified mark
-              const emergencySpec = {
-                ...spec,
-                mark: { type: 'bar' }, // Force a simple mark type
-                $schema: "https://vega.github.io/schema/vega-lite/v5.json",
-                width: 'container',
-                height: 250
+            simplifyButton.addEventListener('click', () => {
+              // Create a simplified version of the chart
+              const simpleSpec = {
+                "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+                "description": "Simplified chart",
+                "width": "container",
+                "height": 250,
+                "data": spec.data, // Use the same data
+                "mark": "bar",     // Use a simple mark type
+                "encoding": {}     // Build encoding based on original
               };
               
-              // Try rendering with the emergency spec
-              vegaEmbed(chartDiv, emergencySpec, { 
+              // Try to use original encodings for x and y if they exist
+              if (spec.encoding) {
+                if (spec.encoding.x) {
+                  simpleSpec.encoding.x = spec.encoding.x;
+                }
+                if (spec.encoding.y) {
+                  simpleSpec.encoding.y = spec.encoding.y;
+                }
+              }
+              
+              // If we don't have good x/y encodings, create defaults from the data
+              if (!simpleSpec.encoding.x || !simpleSpec.encoding.y) {
+                // Try to get field names from the data
+                let sampleData = null;
+                if (spec.data && spec.data.values && spec.data.values.length > 0) {
+                  sampleData = spec.data.values[0];
+                }
+                
+                // If we have sample data, use the first two fields
+                if (sampleData) {
+                  const fields = Object.keys(sampleData);
+                  if (fields.length > 0) {
+                    simpleSpec.encoding.x = {
+                      "field": fields[0],
+                      "type": typeof sampleData[fields[0]] === 'number' ? "quantitative" : "nominal"
+                    };
+                    
+                    if (fields.length > 1) {
+                      simpleSpec.encoding.y = {
+                        "field": fields[1],
+                        "type": typeof sampleData[fields[1]] === 'number' ? "quantitative" : "nominal"
+                      };
+                    }
+                  }
+                }
+              }
+              
+              // Clear the chart div and render the simple version
+              chartDiv.innerHTML = '';
+              
+              vegaEmbed(chartDiv, simpleSpec, {
                 actions: true,
                 theme: 'light',
                 renderer: 'canvas'
-              }).catch(secondError => {
-                // If emergency rendering also fails, show error message
-                chartDiv.innerHTML = `
-                  <div class="error-message p-4 border border-red-300 rounded bg-red-50 text-red-700">
-                    <p><strong>Error rendering chart:</strong> ${error.message}</p>
-                    <p><strong>Emergency fix also failed:</strong> ${secondError.message}</p>
-                    <p class="text-sm mt-2">Check the console for more details.</p>
-                  </div>
-                `;
+              }).then(() => {
+                // Add a back button
+                const backButton = document.createElement('button');
+                backButton.className = 'mt-2 p-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200';
+                backButton.textContent = 'Back to Original';
+                backButton.style.position = 'absolute';
+                backButton.style.bottom = '10px';
+                backButton.style.right = '10px';
+                
+                backButton.addEventListener('click', () => {
+                  // Remove this button
+                  backButton.remove();
+                  
+                  // Re-render the original chart
+                  chartDiv.innerHTML = '';
+                  vegaEmbed(chartDiv, spec, {
+                    actions: true,
+                    theme: 'light',
+                    renderer: 'canvas'
+                  }).then(() => {
+                    // Add the simplify button again
+                    chartDiv.appendChild(simplifyButton);
+                  });
+                });
+                
+                chartDiv.appendChild(backButton);
+                
+                // Add notice that this is a simplified version
+                const notice = document.createElement('div');
+                notice.className = 'bg-blue-50 text-blue-700 p-2 text-xs rounded absolute top-2 right-2';
+                notice.textContent = 'Simplified chart view';
+                chartDiv.appendChild(notice);
               });
-            } catch (fixError) {
-              // Show error if emergency fix fails
+            });
+            
+            chartDiv.appendChild(simplifyButton);
+          }
+        }).catch(error => {
+          console.error(`Chart ${index} - Error rendering:`, error);
+          console.error(`Chart ${index} - Error details:`, error.stack);
+          
+          // Check for the specific mark.type error
+          if (error.toString().includes("config[mark.type][channel]")) {
+            console.warn(`Chart ${index} - Detected mark.type configuration error, creating super-simplified spec`);
+            
+            // Create a guaranteed to work spec (minimal bar chart)
+            const guaranteedSpec = {
+              "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+              "description": "Emergency fallback chart",
+              "width": "container",
+              "height": 250,
+              "data": {
+                "values": [
+                  {"month": "Jan", "value": 10},
+                  {"month": "Feb", "value": 20},
+                  {"month": "Mar", "value": 30},
+                  {"month": "Apr", "value": 15},
+                  {"month": "May", "value": 25},
+                ]
+              },
+              "mark": "bar",
+              "encoding": {
+                "x": {"field": "month", "type": "nominal"},
+                "y": {"field": "value", "type": "quantitative"}
+              }
+            };
+            
+            console.log(`Chart ${index} - Emergency fallback spec:`, guaranteedSpec);
+            
+            // Try rendering with the guaranteed spec
+            vegaEmbed(chartDiv, guaranteedSpec, { 
+              actions: true,
+              theme: 'light',
+              renderer: 'canvas'
+            }).then(() => {
+              // Add a warning that this is a fallback chart
+              const warningEl = document.createElement('div');
+              warningEl.className = 'bg-yellow-100 text-yellow-800 p-2 mt-2 text-sm rounded';
+              warningEl.innerHTML = '<strong>Note:</strong> The original chart specification had errors and could not be rendered. This is a placeholder chart.';
+              chartDiv.appendChild(warningEl);
+            }).catch(lastError => {
+              // If even our guaranteed spec fails, show error message with raw HTML
+              console.error(`Chart ${index} - Emergency fallback also failed:`, lastError);
               chartDiv.innerHTML = `
-                <div class="error-message p-4 border border-red-300 rounded bg-red-50 text-red-700">
-                  <p><strong>Error rendering chart:</strong> ${error.message}</p>
-                  <p><strong>Emergency fix failed:</strong> ${fixError.message}</p>
-                  <p class="text-sm mt-2">Check the console for more details.</p>
+                <div class="flex flex-col items-center justify-center h-full">
+                  <div class="bg-red-50 p-4 rounded-lg border border-red-200 max-w-md">
+                    <h3 class="text-lg font-bold text-red-800 mb-2">Chart Rendering Failed</h3>
+                    <p class="text-red-700 mb-2">Unable to render this chart due to specification errors.</p>
+                    <div class="bg-white p-3 rounded text-sm overflow-auto max-h-32 font-mono">
+                      ${error.message}
+                    </div>
+                    <p class="text-xs text-gray-500 mt-4">Check the browser console for more details.</p>
+                  </div>
                 </div>
               `;
-            }
+            });
           } else {
             // Standard error handling for other errors
             chartDiv.innerHTML = `
