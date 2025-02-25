@@ -55,6 +55,17 @@ const createMessage = ({
 };
 
 const updateMessageState = (message, update) => {
+  // If updating metadata only
+  if (update.metadata && !update.state && !update.content) {
+    return {
+      ...message,
+      metadata: {
+        ...message.metadata,
+        ...update.metadata
+      }
+    };
+  }
+
   if (update.state === 'streaming') {
     // For streaming updates, handle the content
     const newContent = update.content || '';
@@ -73,7 +84,8 @@ const updateMessageState = (message, update) => {
       },
       metadata: {
         ...message.metadata,
-        isComplete: false
+        isComplete: false,
+        ...(update.metadata || {}) // Preserve any metadata updates
       },
       state: {
         type: 'streaming',
@@ -92,11 +104,30 @@ const updateMessageState = (message, update) => {
       },
       metadata: {
         ...message.metadata,
-        isComplete: true
+        isComplete: true,
+        ...(update.metadata || {}) // Preserve any metadata updates
       },
       state: {
         type: 'complete',
         streamedContent: finalContent
+      }
+    };
+  }
+  
+  if (update.state === 'thinking') {
+    return {
+      ...message,
+      content: {
+        ...message.content,
+        text: update.content || message.content.text
+      },
+      metadata: {
+        ...message.metadata,
+        isComplete: false,
+        ...(update.metadata || {}) // Preserve any metadata updates
+      },
+      state: {
+        type: 'thinking'
       }
     };
   }
@@ -290,16 +321,6 @@ const AppRoutes = () => {
                 
                 if (data.ping) return;
                 
-                if (data.complete) {
-                  handleMessageUpdate(aiMessage.id, {
-                    state: 'complete',
-                    content: data.response
-                  });
-                  eventSource.close();
-                  resolve(data.response);
-                  return;
-                }
-                
                 if (data.response) {
                   if (!hasStartedStreaming) {
                     hasStartedStreaming = true;
@@ -309,6 +330,35 @@ const AppRoutes = () => {
                     state: 'streaming',
                     content: data.response
                   });
+                }
+                
+                // Handle thinking content separately
+                if (data.thinkingContent) {
+                  handleMessageUpdate(aiMessage.id, {
+                    metadata: {
+                      ...aiMessage.metadata,
+                      thinkingContent: data.thinkingContent,
+                      hasThinking: true
+                    }
+                  });
+                }
+                
+                // If response is complete
+                if (data.complete) {
+                  // Ensure we preserve any thinking content when transitioning to complete state
+                  const updatedMessage = messages.find(m => m.id === aiMessage.id);
+                  handleMessageUpdate(aiMessage.id, {
+                    state: 'complete',
+                    content: data.response,
+                    metadata: {
+                      ...updatedMessage?.metadata,
+                      thinkingContent: updatedMessage?.metadata?.thinkingContent,
+                      hasThinking: updatedMessage?.metadata?.hasThinking
+                    }
+                  });
+                  eventSource.close();
+                  resolve(data.response);
+                  return;
                 }
               } catch (error) {
                 console.error('Error processing SSE message:', error);

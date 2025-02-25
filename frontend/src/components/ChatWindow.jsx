@@ -155,10 +155,10 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
     loadUserDetails();
   }, []); // Empty dependency array since we only want to load on mount
 
-  const toggleThinking = (index) => {
+  const toggleThinking = (messageId) => {
     setExpandedThinking(prev => ({
       ...prev,
-      [index]: !prev[index]
+      [messageId]: !prev[messageId]
     }));
   };
 
@@ -803,6 +803,29 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
                 </div>
               ) : (
                 <div>
+                  {/* Display thinking content if available and expanded */}
+                  {message.metadata.thinkingContent && (
+                    <div className="mb-3">
+                      <button 
+                        onClick={() => toggleThinking(message.id)}
+                        className="text-xs px-2 py-1 mb-2 rounded bg-gray-200 hover:bg-gray-300 flex items-center"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                          {expandedThinking[message.id] ? (
+                            <path fillRule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clipRule="evenodd" />
+                          ) : (
+                            <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                          )}
+                        </svg>
+                        {expandedThinking[message.id] ? "Hide thinking" : "Show thinking"}
+                      </button>
+                      {expandedThinking[message.id] && (
+                        <div className="p-3 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-600 whitespace-pre-wrap">
+                          {message.metadata.thinkingContent}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {renderMessageContent(message)}
                   {message.state.type === 'streaming' && (
                     <div className="mt-2 animate-pulse flex space-x-2 items-center">
