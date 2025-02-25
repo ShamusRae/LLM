@@ -66,29 +66,47 @@ function getModelConfig(selectedModel) {
 function constructPrompt(message, avatar, previousResponses = [], selectedFiles = []) {
   let prompt = `You are ${avatar.name}, ${avatar.role}. ${avatar.description || ''}\nYour skills include: ${Array.isArray(avatar.skills) ? avatar.skills.join(", ") : avatar.skills}\n\n`;
 
-  // Add Chart.js instructions with explicit markers for graph JSON
-  prompt += `When creating charts or graphs, please use Chart.js format. Wrap your graph JSON output between explicit markers [GRAPH_START] and [GRAPH_END]. For example:
+  // Add formatting instructions
+  prompt += `Please format your response using these guidelines:
 
-[GRAPH_START]
-{
-  "type": "bar",
-  "data": {
-    "labels": ["Category A", "Category B"],
-    "datasets": [{
-      "label": "Values",
-      "data": [10, 20],
-      "backgroundColor": "rgba(75, 192, 192, 0.2)",
-      "borderColor": "rgba(75, 192, 192, 1)"
-    }]
-  },
-  "options": {
-    "responsive": true,
-    "maintainAspectRatio": false
-  }
-}
-[GRAPH_END]
+1. For regular text, use standard markdown formatting:
+   - Use **bold** for emphasis
+   - Use *italics* for subtle emphasis
+   - Use bullet points or numbered lists where appropriate
+   - Use > for blockquotes
+   - Use \`inline code\` for technical terms
 
-Supported chart types: bar, line, pie, doughnut. Follow Chart.js data structure exactly.\n\n`;
+2. For tables, use proper markdown table format:
+   | Header 1 | Header 2 |
+   |----------|----------|
+   | Cell 1   | Cell 2   |
+
+3. For code blocks, use triple backticks with language specification:
+   \`\`\`python
+   def example():
+       return "Hello World"
+   \`\`\`
+
+4. For data visualizations, you MUST ALWAYS wrap the Vega-Lite specification in [GRAPH_START] and [GRAPH_END] markers exactly as shown below. The markers are required for the visualization to work:
+
+   [GRAPH_START]
+   {
+     "description": "Chart Title",
+     "data": {
+       "values": [
+         {"x": "Category A", "y": 10},
+         {"x": "Category B", "y": 20}
+       ]
+     },
+     "mark": "bar",
+     "encoding": {
+       "x": {"field": "x", "type": "ordinal"},
+       "y": {"field": "y", "type": "quantitative"}
+     }
+   }
+   [GRAPH_END]
+
+   IMPORTANT: Always include both [GRAPH_START] and [GRAPH_END] markers. Never output a Vega-Lite specification without these markers.\n\n`;
 
   // Add information about available files and their content
   if (selectedFiles && selectedFiles.length > 0) {
@@ -129,21 +147,78 @@ Supported chart types: bar, line, pie, doughnut. Follow Chart.js data structure 
   return prompt;
 }
 
-function extractThinking(text) {
+function extractThinking(text, model = '') {
+  // Original thinking tags extraction
   const thinkRegex = /<think>(.*?)<\/think>/gs;
   const thoughts = [];
   let cleanedText = text;
+  let hasIntermediateContent = false;
   
+  // Extract content from explicit thinking tags
   let match;
   while ((match = thinkRegex.exec(text)) !== null) {
     thoughts.push(match[1].trim());
     // Remove the thinking content from the main text
     cleanedText = cleanedText.replace(match[0], '');
+    hasIntermediateContent = true;
+  }
+  
+  // For models like Phi-4 that don't use thinking tags but produce intermediate content
+  if (model.toLowerCase().includes('phi') || !hasIntermediateContent) {
+    // Look for patterns that indicate intermediate thinking/reasoning
+    const intermediatePatterns = [
+      // Common intermediate thinking markers
+      /^Let me think about this\.\.\./im,
+      /^I'll analyze this step by step\.\.\./im,
+      /^(First|Let's|To solve|To answer|Analyzing|Reasoning|Let me|I'll|I need to)/im,
+      /^(Step \d+:|Step-by-step|First,|Let's start by)/im,
+      // Final answer markers - content after these is likely the actual answer
+      /(In conclusion:|To summarize:|In summary:|The answer is:|Therefore,|So,|Thus,)/im
+    ];
+    
+    // Check if text has intermediate content patterns
+    const hasIntermediatePatterns = intermediatePatterns.slice(0, 4).some(pattern => pattern.test(text));
+    
+    // Look for a "final answer" section
+    const finalAnswerMatch = intermediatePatterns[4].exec(text);
+    
+    if (hasIntermediatePatterns && finalAnswerMatch) {
+      // Calculate the position where the final answer begins
+      const finalAnswerPos = finalAnswerMatch.index;
+      
+      // If there's substantial text before the final answer, consider it as thinking
+      if (finalAnswerPos > 100) { // Only if there's meaningful content before
+        const intermediateContent = text.substring(0, finalAnswerPos).trim();
+        thoughts.push(intermediateContent);
+        cleanedText = text.substring(finalAnswerPos).trim();
+        hasIntermediateContent = true;
+      }
+    }
+    
+    // If the text is very long (>1000 chars) and no final answer pattern was found,
+    // but we have intermediate patterns, try to identify the most "answer-like" part
+    if (hasIntermediatePatterns && !finalAnswerMatch && text.length > 1000) {
+      // Look for paragraph breaks in the latter half of the content
+      const paragraphs = text.split(/\n\s*\n/);
+      if (paragraphs.length > 1) {
+        // Consider the first 70% as potentially intermediate content
+        const splitPoint = Math.floor(paragraphs.length * 0.7);
+        const potentialThinking = paragraphs.slice(0, splitPoint).join('\n\n');
+        const potentialAnswer = paragraphs.slice(splitPoint).join('\n\n');
+        
+        if (potentialThinking.length > 200 && potentialAnswer.length > 100) {
+          thoughts.push(potentialThinking);
+          cleanedText = potentialAnswer;
+          hasIntermediateContent = true;
+        }
+      }
+    }
   }
   
   return {
     cleanedText: cleanedText.trim(),
-    thoughts: thoughts.join('\n\n')
+    thoughts: thoughts.join('\n\n'),
+    hasIntermediateContent
   };
 }
 
@@ -335,14 +410,14 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
               fullResponse += chunk.response;
               if (onUpdate) {
                 // Parse thinking content from the response
-                const { cleanedText, thoughts } = extractThinking(fullResponse);
+                const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
                 onUpdate({
                   avatarId: avatar.id,
                   avatarName: avatar.name,
                   imageUrl: avatar.imageUrl || null,
                   response: cleanedText,
                   thinkingContent: thoughts,
-                  hasThinking: thoughts.length > 0,
+                  hasThinking: thoughts.length > 0 || hasIntermediateContent,
                   isStreaming: true,
                   round
                 });
@@ -351,7 +426,7 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
           }
 
           // Parse final response
-          const { cleanedText, thoughts } = extractThinking(fullResponse);
+          const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
           response = {
             responses: [{
               avatarId: avatar.id,
@@ -359,7 +434,7 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
               imageUrl: avatar.imageUrl || null,
               response: cleanedText,
               thinkingContent: thoughts,
-              hasThinking: thoughts.length > 0,
+              hasThinking: thoughts.length > 0 || hasIntermediateContent,
               isStreaming: false,
               round
             }]
