@@ -397,48 +397,82 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
         console.log('Using Ollama client for generation with model:', modelConfig.model);
 
         try {
+          // Initialize the Ollama client
+          const ollama = new Ollama({ host: process.env.OLLAMA_HOST || 'http://127.0.0.1:11434' });
+          
           let fullResponse = "";
-          // Use the Ollama client instance to generate a response with streaming
-          const stream = await ollama.generate({
-            model: modelConfig.model,
-            prompt: processedPrompt,
-            stream: true
-          });
+          // Disable streaming for Phi-4 model to prevent flooding messages
+          const isPhiModel = modelConfig.model.toLowerCase().includes('phi');
+          
+          if (isPhiModel) {
+            console.log(`Disabling streaming for ${modelConfig.model} to prevent message flooding`);
+            // Use non-streaming mode for Phi models
+            const result = await ollama.generate({
+              model: modelConfig.model,
+              prompt: processedPrompt,
+              stream: false
+            });
+            
+            fullResponse = result.response;
+            
+            // Parse final response
+            const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
+            response = {
+              responses: [{
+                avatarId: avatar.id,
+                avatarName: avatar.name,
+                imageUrl: avatar.imageUrl || null,
+                response: cleanedText,
+                thinkingContent: thoughts,
+                hasThinking: thoughts.length > 0 || hasIntermediateContent,
+                isStreaming: false,
+                round
+              }]
+            };
+          } else {
+            // For all other models, use streaming as before
+            // Use the Ollama client instance to generate a response with streaming
+            const stream = await ollama.generate({
+              model: modelConfig.model,
+              prompt: processedPrompt,
+              stream: true
+            });
 
-          for await (const chunk of stream) {
-            if (chunk.response) {
-              fullResponse += chunk.response;
-              if (onUpdate) {
-                // Parse thinking content from the response
-                const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
-                onUpdate({
-                  avatarId: avatar.id,
-                  avatarName: avatar.name,
-                  imageUrl: avatar.imageUrl || null,
-                  response: cleanedText,
-                  thinkingContent: thoughts,
-                  hasThinking: thoughts.length > 0 || hasIntermediateContent,
-                  isStreaming: true,
-                  round
-                });
+            for await (const chunk of stream) {
+              if (chunk.response) {
+                fullResponse += chunk.response;
+                if (onUpdate) {
+                  // Parse thinking content from the response
+                  const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
+                  onUpdate({
+                    avatarId: avatar.id,
+                    avatarName: avatar.name,
+                    imageUrl: avatar.imageUrl || null,
+                    response: cleanedText,
+                    thinkingContent: thoughts,
+                    hasThinking: thoughts.length > 0 || hasIntermediateContent,
+                    isStreaming: true,
+                    round
+                  });
+                }
               }
             }
-          }
 
-          // Parse final response
-          const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
-          response = {
-            responses: [{
-              avatarId: avatar.id,
-              avatarName: avatar.name,
-              imageUrl: avatar.imageUrl || null,
-              response: cleanedText,
-              thinkingContent: thoughts,
-              hasThinking: thoughts.length > 0 || hasIntermediateContent,
-              isStreaming: false,
-              round
-            }]
-          };
+            // Parse final response
+            const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
+            response = {
+              responses: [{
+                avatarId: avatar.id,
+                avatarName: avatar.name,
+                imageUrl: avatar.imageUrl || null,
+                response: cleanedText,
+                thinkingContent: thoughts,
+                hasThinking: thoughts.length > 0 || hasIntermediateContent,
+                isStreaming: false,
+                round
+              }]
+            };
+          }
         } catch (err) {
           console.error('Ollama client generate error:', err);
           response = {
