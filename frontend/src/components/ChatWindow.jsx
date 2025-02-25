@@ -463,10 +463,9 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
     // Helper to preprocess and evaluate expressions in JSON string
     const preprocessJsonExpressions = (jsonString) => {
       try {
-        // Look for patterns like: "field": value + value + value
         // First do a simple check if there are likely any expressions to evaluate
-        if (!jsonString.includes(' + ') && !jsonString.includes(' - ') && 
-            !jsonString.includes(' * ') && !jsonString.includes(' / ')) {
+        if (!jsonString.includes('+') && !jsonString.includes('-') && 
+            !jsonString.includes('*') && !jsonString.includes('/')) {
           return jsonString; // No expressions to evaluate
         }
         
@@ -476,14 +475,23 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
         let processed = jsonString;
         
         // Handle expressions in object values like: "field": 100 + 200
-        const expressionRegex = /("[^"]+"\s*:\s*)([^"][^,\}]+(?:\+|\-|\*|\/)[^,\}]+)/g;
+        // Updated regex to better handle division operations
+        const expressionRegex = /("[^"]+"\s*:\s*)([^"][^,\}]+(?:[\+\-\*\/])[^,\}]+)/g;
         processed = processed.replace(expressionRegex, (match, fieldPart, expressionPart) => {
           try {
-            // Be extra careful with evaluation to avoid security issues
-            // Only allow basic arithmetic operations
-            const cleanExpr = expressionPart.trim();
-            if (/^[\d\s\+\-\*\/\(\)\.]+$/.test(cleanExpr)) {
-              const result = eval(cleanExpr);
+            // Clean up the expression
+            const cleanExpr = expressionPart.trim()
+              .replace(/\s+/g, '') // Remove all whitespace
+              .replace(/([+\-*/])/g, ' $1 '); // Add spaces around operators
+            
+            // Only allow basic arithmetic operations and numbers
+            if (/^[\d\s+\-*/()\\.]+$/.test(cleanExpr)) {
+              // Handle division by wrapping numbers in parseFloat
+              const wrappedExpr = cleanExpr.replace(
+                /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/g,
+                'parseFloat($1)/parseFloat($2)'
+              );
+              const result = eval(wrappedExpr);
               console.log(`Evaluated expression "${cleanExpr}" to ${result}`);
               return `${fieldPart}${result}`;
             }
@@ -494,19 +502,27 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
           }
         });
         
-        // Second approach: Handle expressions inside arrays like: [100 + 200, 300 + 400]
+        // Second approach: Handle expressions inside arrays
         const arrayExprRegex = /\[([^\[\]]*)\]/g;
         processed = processed.replace(arrayExprRegex, (match, arrayContent) => {
           // Only process if it contains arithmetic operators
-          if (!/[\+\-\*\/]/.test(arrayContent)) return match;
+          if (!/[+\-*/]/.test(arrayContent)) return match;
           
           try {
             const itemStrings = arrayContent.split(',');
             const processedItems = itemStrings.map(item => {
-              const trimmed = item.trim();
+              const trimmed = item.trim()
+                .replace(/\s+/g, '') // Remove all whitespace
+                .replace(/([+\-*/])/g, ' $1 '); // Add spaces around operators
+              
               // Only evaluate if it looks like a numeric expression
-              if (/^[\d\s\+\-\*\/\(\)\.]+$/.test(trimmed)) {
-                return eval(trimmed);
+              if (/^[\d\s+\-*/()\\.]+$/.test(trimmed)) {
+                // Handle division by wrapping numbers in parseFloat
+                const wrappedExpr = trimmed.replace(
+                  /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/g,
+                  'parseFloat($1)/parseFloat($2)'
+                );
+                return eval(wrappedExpr);
               }
               return trimmed;
             });
