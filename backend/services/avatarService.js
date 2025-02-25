@@ -417,6 +417,43 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
             
             // Parse final response
             const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
+            
+            // Important: For non-streaming Phi models, we need to explicitly send updates that 
+            // match the structure the frontend expects
+            if (onUpdate) {
+              console.log('Sending non-streaming Phi model response updates:', { 
+                responseLength: cleanedText.length,
+                hasThinking: thoughts.length > 0 || hasIntermediateContent
+              });
+              
+              // First, if we have thinking content, update that
+              if (thoughts) {
+                await onUpdate({
+                  avatarId: avatar.id,
+                  avatarName: avatar.name,
+                  imageUrl: avatar.imageUrl || null,
+                  thinkingContent: thoughts,
+                  hasThinking: true,
+                  response: "",
+                  round
+                });
+              }
+              
+              // Then send the final response with the complete flag
+              // This matches what the frontend expects in App.jsx onmessage handler
+              await onUpdate({
+                avatarId: avatar.id,
+                avatarName: avatar.name,
+                imageUrl: avatar.imageUrl || null,
+                response: cleanedText,
+                thinkingContent: thoughts,
+                hasThinking: thoughts.length > 0 || hasIntermediateContent,
+                isStreaming: false,
+                complete: true,  // This is the key flag the frontend looks for
+                round
+              });
+            }
+            
             response = {
               responses: [{
                 avatarId: avatar.id,
