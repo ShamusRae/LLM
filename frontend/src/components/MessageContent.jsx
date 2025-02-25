@@ -20,6 +20,29 @@ const isValidVegaLiteSpec = (spec) => {
   // Must have mark or layer or marks
   if (!spec.mark && !spec.layer && !spec.marks) return false;
   
+  // Ensure mark.type is properly defined if mark is an object
+  if (spec.mark && typeof spec.mark === 'object') {
+    if (!spec.mark.type) {
+      console.warn('Fixing missing mark.type in spec');
+      // Default to a bar chart if type is missing
+      spec.mark.type = 'bar';
+    }
+    
+    // Validate that mark.type is a string and a valid mark type
+    const validMarkTypes = ['area', 'bar', 'line', 'point', 'text', 'tick', 'rect', 'circle', 'square', 'geoshape'];
+    if (!validMarkTypes.includes(spec.mark.type)) {
+      console.warn(`Invalid mark type "${spec.mark.type}", defaulting to "point"`);
+      spec.mark.type = 'point';
+    }
+  } else if (typeof spec.mark === 'string') {
+    // If mark is a string, ensure it's a valid mark type
+    const validMarkTypes = ['area', 'bar', 'line', 'point', 'text', 'tick', 'rect', 'circle', 'square', 'geoshape'];
+    if (!validMarkTypes.includes(spec.mark)) {
+      console.warn(`Invalid mark type "${spec.mark}", defaulting to "point"`);
+      spec.mark = 'point';
+    }
+  }
+  
   // Sanitize the data values if they exist and contain expressions
   if (spec.data && spec.data.values && Array.isArray(spec.data.values)) {
     try {
@@ -57,15 +80,23 @@ const isValidVegaLiteSpec = (spec) => {
     }
   }
   
-  // If using mark and encoding, validate basic structure
-  if (spec.mark && spec.encoding) {
-    // Make sure mark has a type if it's an object
-    if (typeof spec.mark === 'object' && !spec.mark.type) {
-      // Fix mark object by adding default type
-      spec.mark.type = 'point';
+  // Check for common issues in encoding channels
+  if (spec.encoding) {
+    // Make sure encoding channels match mark type
+    const markType = typeof spec.mark === 'string' ? spec.mark : spec.mark.type;
+    
+    // For area charts, ensure they have at least x/y or x2/y2
+    if (markType === 'area' && 
+        !(spec.encoding.x || spec.encoding.y || spec.encoding.x2 || spec.encoding.y2)) {
+      console.warn('Area chart missing required encoding channels');
+      return false;
     }
     
-    return true;
+    // For line charts, ensure they have at least an x or y
+    if (markType === 'line' && !(spec.encoding.x || spec.encoding.y)) {
+      console.warn('Line chart missing required encoding channels');
+      return false;
+    }
   }
   
   // If it's a layered or multi-view spec, do basic validation
@@ -78,7 +109,7 @@ const isValidVegaLiteSpec = (spec) => {
     return true;
   }
   
-  return false;
+  return true;
 };
 
 // Add a backup minimal spec when validation fails
@@ -87,14 +118,21 @@ const createFallbackSpec = (content) => {
   return {
     "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
     "description": "Fallback chart - Original specification had errors",
-    "width": 300,
+    "width": 400,
     "height": 200,
     "data": {
       "values": [{"x": 1, "y": 1}]
     },
-    "mark": "text",
+    "mark": {
+      "type": "text",
+      "align": "center",
+      "baseline": "middle",
+      "fontSize": 14,
+      "fontWeight": "bold"
+    },
     "encoding": {
-      "text": {"value": "Invalid Chart Specification"}
+      "text": {"value": "Error rendering chart: Invalid specification"},
+      "color": {"value": "#cc0000"}
     },
     "background": "#f9f9f9"
   };
@@ -137,11 +175,33 @@ const MessageContent = ({ blocks = [] }) => {
         console.log(`Trying to render chart ${index}:`, block.content);
         
         // Validate and fix the spec if needed
-        let spec = block.content;
+        let spec = structuredClone(block.content); // Deep clone to avoid modifying original
         let fallbackUsed = false;
         
         // More detailed logging for debugging
         console.log(`Received spec (type: ${typeof spec}):`, spec);
+        
+        // Specially handle the config[mark.type][channel] error case
+        try {
+          // Check if mark exists but has issues
+          if (spec.mark && typeof spec.mark === 'object' && !spec.mark.type) {
+            console.warn('Found mark object without type. Adding default type "bar"');
+            spec.mark.type = 'bar';
+          }
+          
+          // If mark is not an object or string, convert it
+          if (spec.mark && typeof spec.mark !== 'object' && typeof spec.mark !== 'string') {
+            console.warn(`Mark is invalid type (${typeof spec.mark}). Converting to string "bar"`);
+            spec.mark = 'bar';
+          }
+          
+          // Add a schema if missing
+          if (!spec.$schema) {
+            spec.$schema = "https://vega.github.io/schema/vega-lite/v5.json";
+          }
+        } catch (markError) {
+          console.error('Error fixing mark:', markError);
+        }
         
         if (!isValidVegaLiteSpec(spec)) {
           console.warn('Invalid Vega-Lite spec, using fallback', spec);
@@ -178,13 +238,55 @@ const MessageContent = ({ blocks = [] }) => {
           padding: { left: 5, top: 5, right: 5, bottom: 5 }
         }).catch(error => {
           console.error('Error rendering Vega-Lite chart:', error);
-          // On rendering error, show error message
-          chartDiv.innerHTML = `
-            <div class="error-message p-4 border border-red-300 rounded bg-red-50 text-red-700">
-              <p><strong>Error rendering chart:</strong> ${error.message}</p>
-              <p class="text-sm mt-2">Check the console for more details.</p>
-            </div>
-          `;
+          
+          // Check for the specific mark.type error
+          if (error.toString().includes("config[mark.type][channel]")) {
+            console.warn('Detected mark.type configuration error, attempting emergency fix');
+            
+            try {
+              // Create an emergency fixed spec with simplified mark
+              const emergencySpec = {
+                ...spec,
+                mark: { type: 'bar' }, // Force a simple mark type
+                $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+                width: 'container',
+                height: 250
+              };
+              
+              // Try rendering with the emergency spec
+              vegaEmbed(chartDiv, emergencySpec, { 
+                actions: true,
+                theme: 'light',
+                renderer: 'canvas'
+              }).catch(secondError => {
+                // If emergency rendering also fails, show error message
+                chartDiv.innerHTML = `
+                  <div class="error-message p-4 border border-red-300 rounded bg-red-50 text-red-700">
+                    <p><strong>Error rendering chart:</strong> ${error.message}</p>
+                    <p><strong>Emergency fix also failed:</strong> ${secondError.message}</p>
+                    <p class="text-sm mt-2">Check the console for more details.</p>
+                  </div>
+                `;
+              });
+            } catch (fixError) {
+              // Show error if emergency fix fails
+              chartDiv.innerHTML = `
+                <div class="error-message p-4 border border-red-300 rounded bg-red-50 text-red-700">
+                  <p><strong>Error rendering chart:</strong> ${error.message}</p>
+                  <p><strong>Emergency fix failed:</strong> ${fixError.message}</p>
+                  <p class="text-sm mt-2">Check the console for more details.</p>
+                </div>
+              `;
+            }
+          } else {
+            // Standard error handling for other errors
+            chartDiv.innerHTML = `
+              <div class="error-message p-4 border border-red-300 rounded bg-red-50 text-red-700">
+                <p><strong>Error rendering chart:</strong> ${error.message}</p>
+                <p class="text-sm mt-2">Check the console for more details.</p>
+              </div>
+            `;
+          }
         });
         
         // If we used a fallback, add an error note
