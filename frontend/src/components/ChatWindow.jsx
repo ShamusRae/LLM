@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import axios from 'axios';
 import ChartComponent from './Chart';
+import MessageContent from './MessageContent';
 
 const CopyButton = ({ text }) => {
   const [copied, setCopied] = useState(false);
@@ -443,7 +444,234 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
     }
   };
 
-  // Update the renderMessageContent function to handle all message types
+  // Add this function after the existing imports
+  const parseContentToBlocks = (content) => {
+    const blocks = [];
+    let currentText = '';
+
+    // Helper to add accumulated text as a block
+    const addTextBlock = () => {
+      if (currentText.trim()) {
+        blocks.push({
+          type: 'text',
+          content: currentText.trim()
+        });
+        currentText = '';
+      }
+    };
+
+    // Helper to preprocess and evaluate expressions in JSON string
+    const preprocessJsonExpressions = (jsonString) => {
+      try {
+        // Look for patterns like: "field": value + value + value
+        // First do a simple check if there are likely any expressions to evaluate
+        if (!jsonString.includes(' + ') && !jsonString.includes(' - ') && 
+            !jsonString.includes(' * ') && !jsonString.includes(' / ')) {
+          return jsonString; // No expressions to evaluate
+        }
+        
+        console.log('Processing JSON with expressions:', jsonString.slice(0, 100) + '...');
+        
+        // First approach: Try to fix arithmetic expressions in field values
+        let processed = jsonString;
+        
+        // Handle expressions in object values like: "field": 100 + 200
+        const expressionRegex = /("[^"]+"\s*:\s*)([^"][^,\}]+(?:\+|\-|\*|\/)[^,\}]+)/g;
+        processed = processed.replace(expressionRegex, (match, fieldPart, expressionPart) => {
+          try {
+            // Be extra careful with evaluation to avoid security issues
+            // Only allow basic arithmetic operations
+            const cleanExpr = expressionPart.trim();
+            if (/^[\d\s\+\-\*\/\(\)\.]+$/.test(cleanExpr)) {
+              const result = eval(cleanExpr);
+              console.log(`Evaluated expression "${cleanExpr}" to ${result}`);
+              return `${fieldPart}${result}`;
+            }
+            return match; // If not safe, leave unchanged
+          } catch (evalError) {
+            console.warn('Failed to evaluate expression:', evalError, 'in', match);
+            return match; // Keep original if evaluation fails
+          }
+        });
+        
+        // Second approach: Handle expressions inside arrays like: [100 + 200, 300 + 400]
+        const arrayExprRegex = /\[([^\[\]]*)\]/g;
+        processed = processed.replace(arrayExprRegex, (match, arrayContent) => {
+          // Only process if it contains arithmetic operators
+          if (!/[\+\-\*\/]/.test(arrayContent)) return match;
+          
+          try {
+            const itemStrings = arrayContent.split(',');
+            const processedItems = itemStrings.map(item => {
+              const trimmed = item.trim();
+              // Only evaluate if it looks like a numeric expression
+              if (/^[\d\s\+\-\*\/\(\)\.]+$/.test(trimmed)) {
+                return eval(trimmed);
+              }
+              return trimmed;
+            });
+            return '[' + processedItems.join(', ') + ']';
+          } catch (error) {
+            console.warn('Failed to process array expressions:', error);
+            return match;
+          }
+        });
+        
+        console.log('JSON after preprocessing:', processed.slice(0, 100) + '...');
+        return processed;
+      } catch (error) {
+        console.warn('Error preprocessing JSON expressions:', error);
+        return jsonString; // Return original on error
+      }
+    };
+
+    // Split content into lines
+    const lines = content.split('\n');
+    let inCodeBlock = false;
+    let codeBlockContent = '';
+    let codeBlockLanguage = '';
+    let inVegaBlock = false;
+    let vegaBlockContent = '';
+
+    for (let line of lines) {
+      // Handle code blocks
+      if (line.startsWith('```')) {
+        if (!inCodeBlock) {
+          // Starting a code block
+          addTextBlock();
+          inCodeBlock = true;
+          codeBlockLanguage = line.slice(3).trim();
+          codeBlockContent = '';
+        } else {
+          // Ending a code block
+          inCodeBlock = false;
+          blocks.push({
+            type: 'code',
+            content: codeBlockContent.trim(),
+            language: codeBlockLanguage
+          });
+          codeBlockContent = '';
+        }
+        continue;
+      }
+
+      // Handle Vega-Lite blocks
+      if (line.includes('[GRAPH_START]')) {
+        addTextBlock();
+        inVegaBlock = true;
+        vegaBlockContent = '';
+        continue;
+      }
+      if (line.includes('[GRAPH_END]')) {
+        inVegaBlock = false;
+        try {
+          // First validate that the content looks like JSON before trying to parse
+          const trimmedContent = vegaBlockContent.trim();
+          // Check if it's a valid JSON candidate before parsing
+          if (trimmedContent && 
+              (trimmedContent.startsWith('{') && trimmedContent.endsWith('}')) ||
+              (trimmedContent.startsWith('[') && trimmedContent.endsWith(']'))) {
+            try {
+              // Preprocess JSON to evaluate any expressions
+              console.log('Found potential Vega-Lite spec, preprocessing...');
+              const processedContent = preprocessJsonExpressions(trimmedContent);
+              
+              // Log differences for debugging
+              if (processedContent !== trimmedContent) {
+                console.log('Preprocessing made changes to the JSON content');
+              }
+              
+              try {
+                const vegaSpec = JSON.parse(processedContent);
+                console.log('Successfully parsed Vega-Lite spec:', vegaSpec);
+                blocks.push({
+                  type: 'vega-lite',
+                  content: vegaSpec
+                });
+              } catch (jsonParseError) {
+                console.error('JSON parse error:', jsonParseError.message);
+                // Try a more aggressive approach - replace all expressions with numeric values
+                try {
+                  // Replace anything that looks like a calculation with 0 to at least make it valid JSON
+                  const simplifiedContent = processedContent.replace(/(\d+\s*[\+\-\*\/]\s*\d+(\s*[\+\-\*\/]\s*\d+)*)/g, '0');
+                  const fallbackSpec = JSON.parse(simplifiedContent);
+                  console.log('Used simplified JSON as fallback');
+                  blocks.push({
+                    type: 'vega-lite',
+                    content: fallbackSpec
+                  });
+                } catch (fallbackError) {
+                  // If all else fails, show as code
+                  console.error('Fallback parsing also failed:', fallbackError);
+                  blocks.push({
+                    type: 'code',
+                    content: trimmedContent,
+                    language: 'json'
+                  });
+                }
+              }
+            } catch (jsonError) {
+              console.error('Failed to preprocess or parse Vega-Lite spec:', jsonError);
+              console.log('Raw content that failed:', trimmedContent);
+              blocks.push({
+                type: 'code',
+                content: trimmedContent,
+                language: 'json'
+              });
+            }
+          } else {
+            // Not valid JSON structure, treat as code
+            console.warn('Vega-Lite block does not contain valid JSON structure');
+            blocks.push({
+              type: 'code',
+              content: trimmedContent,
+              language: 'json'
+            });
+          }
+        } catch (error) {
+          console.error('Error processing Vega-Lite block:', error);
+          blocks.push({
+            type: 'text',
+            content: `Error parsing chart: ${error.message}`
+          });
+        }
+        vegaBlockContent = '';
+        continue;
+      }
+
+      // Accumulate content based on current state
+      if (inCodeBlock) {
+        codeBlockContent += line + '\n';
+      } else if (inVegaBlock) {
+        vegaBlockContent += line + '\n';
+      } else {
+        currentText += line + '\n';
+      }
+    }
+
+    // Add any remaining text
+    addTextBlock();
+
+    // Handle unclosed blocks
+    if (inCodeBlock) {
+      blocks.push({
+        type: 'code',
+        content: codeBlockContent.trim(),
+        language: codeBlockLanguage || 'text'
+      });
+    }
+    
+    if (inVegaBlock) {
+      blocks.push({
+        type: 'text',
+        content: vegaBlockContent.trim()
+      });
+    }
+
+    return blocks;
+  };
+
+  // Find the renderMessageContent function and replace it with:
   const renderMessageContent = (message) => {
     const { content, state } = message;
     
@@ -452,98 +680,8 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
       return null;
     }
 
-    // Parse any graph data in the message
-    const parseGraphs = (text) => {
-      const graphs = [];
-      let currentIndex = 0;
-      let modifiedText = text;
-
-      while (true) {
-        const startMarker = '[GRAPH_START]';
-        const endMarker = '[GRAPH_END]';
-        
-        const startIndex = modifiedText.indexOf(startMarker, currentIndex);
-        if (startIndex === -1) break;
-        
-        const endIndex = modifiedText.indexOf(endMarker, startIndex);
-        if (endIndex === -1) break;
-
-        // Extract everything between markers and clean up whitespace and special characters
-        let graphJson = modifiedText
-          .slice(startIndex + startMarker.length, endIndex)
-          .replace(/^\s*\n/, '') // Remove first newline
-          .replace(/\n\s*$/, '') // Remove last newline
-          .replace(/^\s*\*+\s*/, '') // Remove leading asterisks
-          .replace(/\s*\*+\s*$/, '') // Remove trailing asterisks
-          .trim();
-
-        try {
-          // Clean up the JSON string
-          graphJson = graphJson.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":'); // Ensure proper JSON property quotes
-          graphJson = graphJson.replace(/(\d+)k/g, '$1000'); // Convert 'k' suffix to actual numbers
-          
-          const graphData = JSON.parse(graphJson);
-          
-          // Validate required properties
-          if (!graphData.type || !graphData.data || !graphData.data.datasets) {
-            console.warn('Invalid graph data structure:', graphData);
-            currentIndex = endIndex + endMarker.length;
-            continue;
-          }
-          
-          graphs.push(graphData);
-          
-          // Replace the graph JSON with a placeholder
-          const placeholder = `[GRAPH_${graphs.length - 1}]`;
-          modifiedText = modifiedText.slice(0, startIndex) + placeholder + modifiedText.slice(endIndex + endMarker.length);
-          currentIndex = startIndex + placeholder.length;
-        } catch (error) {
-          console.error('Failed to parse graph JSON:', error, '\nJSON string:', graphJson);
-          currentIndex = endIndex + endMarker.length;
-        }
-      }
-
-      return { modifiedText, graphs };
-    };
-
-    // Process the message content
-    const { modifiedText, graphs } = parseGraphs(content.text);
-    
-    // Split the text into segments, separating graph placeholders
-    const segments = modifiedText.split(/(\[GRAPH_\d+\])/);
-
-    return (
-      <div className="space-y-4">
-        <div className="prose prose-sm max-w-none">
-          {segments.map((segment, index) => {
-            const graphMatch = segment.match(/\[GRAPH_(\d+)\]/);
-            if (graphMatch) {
-              const graphIndex = parseInt(graphMatch[1]);
-              const graphData = graphs[graphIndex];
-              return (
-                <div key={index} className="w-full h-[400px] border border-gray-200 rounded-lg p-4 my-4">
-                  <ChartComponent 
-                    type={graphData.type}
-                    data={graphData.data}
-                    options={graphData.options || {}}
-                  />
-                </div>
-              );
-            }
-            return (
-              <ReactMarkdown 
-                key={index}
-                components={renderers}
-                rehypePlugins={[rehypeRaw]}
-                skipHtml={false}
-              >
-                {segment}
-              </ReactMarkdown>
-            );
-          })}
-        </div>
-      </div>
-    );
+    const blocks = parseContentToBlocks(content.text);
+    return <MessageContent blocks={blocks} />;
   };
 
   return (
