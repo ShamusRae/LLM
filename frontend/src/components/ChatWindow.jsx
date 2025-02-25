@@ -73,8 +73,34 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // Enhanced scrolling - watches not just for new messages but also message state changes
   useEffect(() => {
-    scrollToBottom();
+    // Delayed scroll to ensure rendering is complete
+    const timeoutId = setTimeout(() => {
+      scrollToBottom();
+    }, 100);
+    
+    return () => clearTimeout(timeoutId);
+  }, [
+    renderedMessages.length, // Watch for new messages
+    // Also watch for changes in any message state
+    ...renderedMessages.map(m => m.state.type)
+  ]);
+
+  // Monitor specifically for thinking states
+  useEffect(() => {
+    const hasThinkingMessage = renderedMessages.some(m => m.state.type === 'thinking');
+    const hasStreamingMessage = renderedMessages.some(m => m.state.type === 'streaming');
+    
+    // If a thinking or streaming message appears, scroll immediately
+    if (hasThinkingMessage || hasStreamingMessage) {
+      scrollToBottom();
+      
+      // Set up an interval to keep scrolling while in thinking/streaming state
+      const intervalId = setInterval(scrollToBottom, 500);
+      
+      return () => clearInterval(intervalId);
+    }
   }, [renderedMessages]);
 
   const getAvatarImageUrl = (imageUrl) => {
@@ -730,6 +756,7 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
           <div 
             key={message.id} 
             className={`mb-4 flex items-start gap-2 ${containerClasses}`}
+            id={`message-${message.id}`}
           >
             {!message.metadata.isUser && message.metadata.avatar && (
               <div className="flex-shrink-0">
@@ -752,14 +779,21 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
               </div>
             )}
             <div 
-              className={`p-3 rounded-lg ${messageClasses} max-w-[70%] flex-grow-0`}
+              className={`p-3 rounded-lg ${messageClasses} ${
+                message.state.type === 'thinking' || message.state.type === 'streaming' 
+                  ? 'w-full md:max-w-[85%]' // Wider for thinking/streaming states
+                  : 'w-full md:max-w-[75%]' // Normal width for complete messages
+              }`}
             >
               {message.metadata.isError ? (
                 <p className="text-red-700">{message.content.text}</p>
               ) : message.state.type === 'thinking' ? (
-                <div className="flex flex-col gap-2">
-                  <div className="text-sm">
-                    {message.content.text}
+                <div className="flex flex-col gap-2 w-full">
+                  <div className="text-sm font-medium">
+                    Thinking...
+                  </div>
+                  <div className="text-sm text-yellow-700">
+                    {message.content.text || "Processing your request..."}
                   </div>
                   <div className="animate-pulse flex space-x-2 items-center">
                     <div className="h-2 w-2 bg-yellow-400 rounded-full"></div>
@@ -791,10 +825,10 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
                     onError={(e) => handleImageError(e, "User")}
                   />
                 ) : (
-                  <div 
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 ${getAvatarColor(true)}`}
+              <div 
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 ${getAvatarColor(true)}`}
                     title={userDetails.name || "You"}
-                  >
+              >
                     {userDetails.name ? getInitials(userDetails.name) : 'U'}
                   </div>
                 )}

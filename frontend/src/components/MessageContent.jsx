@@ -125,9 +125,12 @@ const MessageContent = ({ blocks = [] }) => {
         // Create a container for this specific chart
         const chartDiv = document.createElement('div');
         chartDiv.id = `vega-chart-${index}`;
-        chartDiv.className = 'vega-chart-container';
-        chartDiv.style.minHeight = '200px';
+        chartDiv.className = 'vega-chart-container mb-4 p-4 border border-gray-200 rounded-lg bg-white';
+        chartDiv.style.minHeight = '300px'; // Increased from 200px
         chartDiv.style.width = '100%';
+        
+        // Add width override to ensure charts are wide enough
+        chartDiv.style.minWidth = '400px';
         chartContainer.appendChild(chartDiv);
         
         // Log spec for debugging
@@ -146,6 +149,16 @@ const MessageContent = ({ blocks = [] }) => {
           fallbackUsed = true;
         } else {
           console.log('Valid spec detected, proceeding with render');
+          
+          // Add width to the spec if it doesn't already have it
+          if (!spec.width) {
+            spec = {...spec, width: 'container'};
+          }
+          
+          // Add height if it doesn't exist
+          if (!spec.height) {
+            spec = {...spec, height: 250};
+          }
         }
         
         // Use vegaEmbed with additional config options
@@ -159,7 +172,10 @@ const MessageContent = ({ blocks = [] }) => {
             // Add default config to help with common issues
             mark: { tooltip: true },
             axis: { titlePadding: 10 }
-          }
+          },
+          width: spec.width || 'container', // Ensure width is set
+          height: spec.height || 250,       // Ensure height is set
+          padding: { left: 5, top: 5, right: 5, bottom: 5 }
         }).catch(error => {
           console.error('Error rendering Vega-Lite chart:', error);
           // On rendering error, show error message
