@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import axios from 'axios';
 import ChartComponent from './Chart';
-import MessageContent from './MessageContent';
+import MessageContent from './MessageContent.tsx';
+import MCPToolUsage from './MCPToolUsage';
 
 const CopyButton = ({ text }) => {
   const [copied, setCopied] = useState(false);
@@ -50,23 +51,45 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
     })));
 
     // Filter messages for current session
-    const currentSessionMessages = messages.filter(m => 
-      !m.sessionId || // Include messages without sessionId (backwards compatibility)
-      m.sessionId === sessionId // Include messages from current session
+    const currentSessionMessages = messages.filter(message => 
+      !message.sessionId || // Include messages without sessionId for backward compatibility
+      message.sessionId === sessionId
     );
+
+    // Ensure messages have unique IDs by adding a suffix if duplicates are found
+    const uniqueMessages = [];
+    const seenIds = new Set();
     
-    console.log('Filtered messages for session:', {
-      sessionId,
-      totalMessages: messages.length,
-      filteredMessages: currentSessionMessages.length,
-      messageStates: currentSessionMessages.map(m => ({
-        id: m.id,
-        state: m.state.type,
-        contentLength: m.content.text?.length
-      }))
+    currentSessionMessages.forEach(message => {
+      if (!message.id) {
+        // Generate an ID if it doesn't exist
+        message = { ...message, id: Date.now() + "-" + Math.random().toString(36).substring(2, 9) };
+      }
+      
+      if (seenIds.has(message.id)) {
+        // Create a new unique ID by adding a suffix
+        const newId = `${message.id}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
+        console.warn(`Duplicate message ID found: ${message.id}, creating new ID: ${newId}`);
+        uniqueMessages.push({ ...message, id: newId });
+      } else {
+        seenIds.add(message.id);
+        uniqueMessages.push(message);
+      }
+    });
+
+    // Sort messages by timestamp
+    uniqueMessages.sort((a, b) => {
+      // If timestamps are available, use them
+      if (a.timestamp && b.timestamp) {
+        return a.timestamp - b.timestamp;
+      }
+      // Otherwise maintain the original order
+      return currentSessionMessages.indexOf(a) - currentSessionMessages.indexOf(b);
     });
     
-    setRenderedMessages(currentSessionMessages);
+    setRenderedMessages(uniqueMessages);
+    
+    console.log(`Filtered messages for session: ${sessionId}, total: ${messages.length}, filtered: ${uniqueMessages.length}, thinking: ${uniqueMessages.filter(m => m.thinking).length}, streaming: ${uniqueMessages.filter(m => m.streaming).length}`);
   }, [messages, sessionId]);
 
   const scrollToBottom = () => {
@@ -82,9 +105,10 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
     
     return () => clearTimeout(timeoutId);
   }, [
-    renderedMessages.length, // Watch for new messages
-    // Also watch for changes in any message state
-    ...renderedMessages.map(m => m.state.type)
+    // Use a stable dependency that captures the same information
+    renderedMessages.length,
+    // Create a string representation of all message states to avoid array size changes
+    renderedMessages.map(m => m.state.type).join(',')
   ]);
 
   // Monitor specifically for thinking states
@@ -264,50 +288,75 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
 
   // Update the findNextGraph function to be more precise
   const findNextGraph = (startIndex, text) => {
-    // Look for all possible markers
+    // Common JSON/graph delimiters
     const markers = [
-      { start: '[GRAPH_START]', end: '[GRAPH_END]' },
-      { start: '```json', end: '```' },
-      { start: '```chart', end: '```' }
+      { start: "[GRAPH_START]", end: "[GRAPH_END]" },
+      { start: "```vega-lite", end: "```" },
+      { start: "```json", end: "```" },
+      { start: "{", end: "}" }
     ];
-
-    let bestMatch = null;
-    let earliestStart = Infinity;
-
+    
     for (const marker of markers) {
-      const startPos = text.indexOf(marker.start, startIndex);
-      if (startPos !== -1 && startPos < earliestStart) {
-        const endPos = text.indexOf(marker.end, startPos + marker.start.length);
-        if (endPos !== -1) {
-          // Make sure we're not inside a code block already
-          const beforeStart = text.substring(Math.max(0, startPos - 3), startPos);
-          if (!beforeStart.includes('`')) {
-            earliestStart = startPos;
-            bestMatch = {
-              start: startPos,
-              end: endPos + marker.end.length,
-              contentStart: startPos + marker.start.length,
-              contentEnd: endPos,
+      const startMarkerIndex = text.indexOf(marker.start, startIndex);
+      if (startMarkerIndex !== -1) {
+        let contentStart = startMarkerIndex + marker.start.length;
+        
+        // Skip to the actual content start
+        if (marker.start === "```vega-lite" || marker.start === "```json") {
+          const nextLineIndex = text.indexOf("\n", contentStart);
+          if (nextLineIndex !== -1) {
+            contentStart = nextLineIndex + 1;
+          }
+        }
+        
+        // For JSON objects, we need to find the matching closing brace
+        if (marker.start === "{") {
+          let openBraces = 1;
+          let endMarkerIndex = contentStart;
+          
+          while (openBraces > 0 && endMarkerIndex < text.length) {
+            endMarkerIndex++;
+            if (text[endMarkerIndex] === "{") openBraces++;
+            if (text[endMarkerIndex] === "}") openBraces--;
+          }
+          
+          if (openBraces === 0) {
+            const content = text.substring(startMarkerIndex, endMarkerIndex + 1);
+            // Remove JavaScript-style comments if present
+            let cleanedContent = content.replace(/\/\/.*$/gm, '');
+            
+            return {
+              start: startMarkerIndex,
+              end: endMarkerIndex + 1,
+              contentStart: startMarkerIndex,
+              contentEnd: endMarkerIndex + 1,
+              content: cleanedContent,
+              marker
+            };
+          }
+        } else {
+          // For code blocks and explicit markers, find the closing marker
+          const endMarkerIndex = text.indexOf(marker.end, contentStart);
+          if (endMarkerIndex !== -1) {
+            // Extract the actual content without the markers
+            const content = text.substring(contentStart, endMarkerIndex).trim();
+            // Remove JavaScript-style comments if present
+            let cleanedContent = content.replace(/\/\/.*$/gm, '');
+            
+            return {
+              start: startMarkerIndex,
+              end: endMarkerIndex + marker.end.length,
+              contentStart,
+              contentEnd: endMarkerIndex,
+              content: cleanedContent,
               marker
             };
           }
         }
       }
     }
-
-    if (bestMatch) {
-      // Clean up the content based on marker type
-      let cleanContent = text.slice(bestMatch.contentStart, bestMatch.contentEnd).trim();
-      if (bestMatch.marker.start.includes('```')) {
-        cleanContent = cleanContent
-          .replace(/^```(?:json|chart-[a-z]+)?\n/, '')
-          .replace(/\n```$/, '')
-          .trim();
-      }
-      bestMatch.content = cleanContent;
-    }
-
-    return bestMatch;
+    
+    return null;
   };
 
   // Custom renderer for markdown elements
@@ -472,258 +521,316 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
 
   // Add this function after the existing imports
   const parseContentToBlocks = (content) => {
+    // Helper function to debug Vega-Lite specs
+    const debugVegaLiteSpec = (spec) => {
+      console.log("Attempting to parse Vega-Lite spec:");
+      try {
+        if (typeof spec === 'string') {
+          // Try to clean the spec by removing comments
+          const cleanedSpec = spec.replace(/\/\/.*$/gm, '');
+          console.log("Cleaned spec (removed comments):", cleanedSpec.substring(0, 100) + "...");
+          
+          // Try to parse the cleaned spec
+          const parsedSpec = JSON.parse(cleanedSpec);
+          console.log("Successfully parsed spec. Structure:", {
+            hasData: !!parsedSpec.data,
+            dataFormat: parsedSpec.data ? Object.keys(parsedSpec.data) : [],
+            hasMark: !!parsedSpec.mark,
+            hasEncoding: !!parsedSpec.encoding,
+          });
+          return parsedSpec;
+        } else {
+          console.log("Spec is already an object:", {
+            hasData: !!spec.data,
+            dataFormat: spec.data ? Object.keys(spec.data) : [],
+            hasMark: !!spec.mark,
+            hasEncoding: !!spec.encoding,
+          });
+          return spec;
+        }
+      } catch (error) {
+        console.error("Failed to parse spec:", error);
+        return null;
+      }
+    };
+
     const blocks = [];
     let currentText = '';
-
-    // Helper to add accumulated text as a block
+    let index = 0;
+    
     const addTextBlock = () => {
       if (currentText.trim()) {
         blocks.push({
           type: 'text',
           content: currentText.trim()
         });
-        currentText = '';
       }
+      currentText = '';
     };
-
-    // Helper to preprocess and evaluate expressions in JSON string
+    
     const preprocessJsonExpressions = (jsonString) => {
-      try {
-        // First do a simple check if there are likely any expressions to evaluate
-        if (!jsonString.includes('+') && !jsonString.includes('-') && 
-            !jsonString.includes('*') && !jsonString.includes('/')) {
-          return jsonString; // No expressions to evaluate
-        }
-        
-        console.log('Processing JSON with expressions:', jsonString.slice(0, 100) + '...');
-        
-        // First approach: Try to fix arithmetic expressions in field values
-        let processed = jsonString;
-        
-        // Handle expressions in object values like: "field": 100 + 200
-        // Updated regex to better handle division operations
-        const expressionRegex = /("[^"]+"\s*:\s*)([^"][^,\}]+(?:[\+\-\*\/])[^,\}]+)/g;
-        processed = processed.replace(expressionRegex, (match, fieldPart, expressionPart) => {
-          try {
-            // Clean up the expression
-            const cleanExpr = expressionPart.trim()
-              .replace(/\s+/g, '') // Remove all whitespace
-              .replace(/([+\-*/])/g, ' $1 '); // Add spaces around operators
-            
-            // Only allow basic arithmetic operations and numbers
-            if (/^[\d\s+\-*/()\\.]+$/.test(cleanExpr)) {
-              // Handle division by wrapping numbers in parseFloat
-              const wrappedExpr = cleanExpr.replace(
-                /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/g,
-                'parseFloat($1)/parseFloat($2)'
-              );
-              const result = eval(wrappedExpr);
-              console.log(`Evaluated expression "${cleanExpr}" to ${result}`);
-              return `${fieldPart}${result}`;
-            }
-            return match; // If not safe, leave unchanged
-          } catch (evalError) {
-            console.warn('Failed to evaluate expression:', evalError, 'in', match);
-            return match; // Keep original if evaluation fails
-          }
-        });
-        
-        // Second approach: Handle expressions inside arrays
-        const arrayExprRegex = /\[([^\[\]]*)\]/g;
-        processed = processed.replace(arrayExprRegex, (match, arrayContent) => {
-          // Only process if it contains arithmetic operators
-          if (!/[+\-*/]/.test(arrayContent)) return match;
-          
-          try {
-            const itemStrings = arrayContent.split(',');
-            const processedItems = itemStrings.map(item => {
-              const trimmed = item.trim()
-                .replace(/\s+/g, '') // Remove all whitespace
-                .replace(/([+\-*/])/g, ' $1 '); // Add spaces around operators
-              
-              // Only evaluate if it looks like a numeric expression
-              if (/^[\d\s+\-*/()\\.]+$/.test(trimmed)) {
-                // Handle division by wrapping numbers in parseFloat
-                const wrappedExpr = trimmed.replace(
-                  /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/g,
-                  'parseFloat($1)/parseFloat($2)'
-                );
-                return eval(wrappedExpr);
-              }
-              return trimmed;
-            });
-            return '[' + processedItems.join(', ') + ']';
-          } catch (error) {
-            console.warn('Failed to process array expressions:', error);
-            return match;
-          }
-        });
-        
-        console.log('JSON after preprocessing:', processed.slice(0, 100) + '...');
-        return processed;
-      } catch (error) {
-        console.warn('Error preprocessing JSON expressions:', error);
-        return jsonString; // Return original on error
-      }
+      // Remove any comments from the JSON string
+      return jsonString.replace(/\/\/.*$/gm, '');
     };
-
-    // Split content into lines
-    const lines = content.split('\n');
-    let inCodeBlock = false;
-    let codeBlockContent = '';
-    let codeBlockLanguage = '';
-    let inVegaBlock = false;
-    let vegaBlockContent = '';
-
-    for (let line of lines) {
-      // Handle code blocks
-      if (line.startsWith('```')) {
-        if (!inCodeBlock) {
-          // Starting a code block
-          addTextBlock();
-          inCodeBlock = true;
-          codeBlockLanguage = line.slice(3).trim();
-          codeBlockContent = '';
+    
+    // First check for [GRAPH_START] and [GRAPH_END] markers
+    const graphStartMarker = '[GRAPH_START]';
+    const graphEndMarker = '[GRAPH_END]';
+    
+    while (index < content.length) {
+      const graphStartIndex = content.indexOf(graphStartMarker, index);
+      
+      if (graphStartIndex === -1) {
+        // No more graph markers, add the rest as text
+        currentText += content.slice(index);
+        break;
+      }
+      
+      // Add text before the graph marker
+      currentText += content.slice(index, graphStartIndex);
+      addTextBlock();
+      
+      // Find the end of the graph
+      const contentStart = graphStartIndex + graphStartMarker.length;
+      const graphEndIndex = content.indexOf(graphEndMarker, contentStart);
+      
+      if (graphEndIndex === -1) {
+        // No closing marker, treat the rest as text
+        currentText += content.slice(graphStartIndex);
+        break;
+      }
+      
+      // Extract and clean the graph JSON
+      const graphContent = content.slice(contentStart, graphEndIndex).trim();
+      
+      try {
+        // Clean the JSON and parse it
+        const cleanedContent = preprocessJsonExpressions(graphContent);
+        const parsedGraph = JSON.parse(cleanedContent);
+        
+        // Debug the chart data
+        debugVegaLiteSpec(parsedGraph);
+        
+        // Check if it looks like a valid Vega-Lite spec
+        if (parsedGraph.data && (parsedGraph.mark || parsedGraph.layer) && parsedGraph.encoding) {
+          blocks.push({
+            type: 'vega-lite',
+            content: parsedGraph
+          });
         } else {
-          // Ending a code block
-          inCodeBlock = false;
+          // Not a valid chart, treat as text
           blocks.push({
             type: 'code',
-            content: codeBlockContent.trim(),
-            language: codeBlockLanguage
-          });
-          codeBlockContent = '';
-        }
-        continue;
-      }
-
-      // Handle Vega-Lite blocks
-      if (line.includes('[GRAPH_START]')) {
-        addTextBlock();
-        inVegaBlock = true;
-        vegaBlockContent = '';
-        continue;
-      }
-      if (line.includes('[GRAPH_END]')) {
-        inVegaBlock = false;
-        try {
-          // First validate that the content looks like JSON before trying to parse
-          const trimmedContent = vegaBlockContent.trim();
-          // Check if it's a valid JSON candidate before parsing
-          if (trimmedContent && 
-              (trimmedContent.startsWith('{') && trimmedContent.endsWith('}')) ||
-              (trimmedContent.startsWith('[') && trimmedContent.endsWith(']'))) {
-            try {
-              // Preprocess JSON to evaluate any expressions
-              console.log('Found potential Vega-Lite spec, preprocessing...');
-              const processedContent = preprocessJsonExpressions(trimmedContent);
-              
-              // Log differences for debugging
-              if (processedContent !== trimmedContent) {
-                console.log('Preprocessing made changes to the JSON content');
-              }
-              
-              try {
-                const vegaSpec = JSON.parse(processedContent);
-                console.log('Successfully parsed Vega-Lite spec:', vegaSpec);
-                blocks.push({
-                  type: 'vega-lite',
-                  content: vegaSpec
-                });
-              } catch (jsonParseError) {
-                console.error('JSON parse error:', jsonParseError.message);
-                // Try a more aggressive approach - replace all expressions with numeric values
-                try {
-                  // Replace anything that looks like a calculation with 0 to at least make it valid JSON
-                  const simplifiedContent = processedContent.replace(/(\d+\s*[\+\-\*\/]\s*\d+(\s*[\+\-\*\/]\s*\d+)*)/g, '0');
-                  const fallbackSpec = JSON.parse(simplifiedContent);
-                  console.log('Used simplified JSON as fallback');
-                  blocks.push({
-                    type: 'vega-lite',
-                    content: fallbackSpec
-                  });
-                } catch (fallbackError) {
-                  // If all else fails, show as code
-                  console.error('Fallback parsing also failed:', fallbackError);
-                  blocks.push({
-                    type: 'code',
-                    content: trimmedContent,
-                    language: 'json'
-                  });
-                }
-              }
-            } catch (jsonError) {
-              console.error('Failed to preprocess or parse Vega-Lite spec:', jsonError);
-              console.log('Raw content that failed:', trimmedContent);
-              blocks.push({
-                type: 'code',
-                content: trimmedContent,
-                language: 'json'
-              });
-            }
-          } else {
-            // Not valid JSON structure, treat as code
-            console.warn('Vega-Lite block does not contain valid JSON structure');
-            blocks.push({
-              type: 'code',
-              content: trimmedContent,
-              language: 'json'
-            });
-          }
-        } catch (error) {
-          console.error('Error processing Vega-Lite block:', error);
-          blocks.push({
-            type: 'text',
-            content: `Error parsing chart: ${error.message}`
+            content: graphContent,
+            language: 'json'
           });
         }
-        vegaBlockContent = '';
-        continue;
+      } catch (e) {
+        console.error("Error parsing graph JSON:", e);
+        // Parsing failed, add as code block
+        blocks.push({
+          type: 'code',
+          content: graphContent,
+          language: 'json'
+        });
       }
-
-      // Accumulate content based on current state
-      if (inCodeBlock) {
-        codeBlockContent += line + '\n';
-      } else if (inVegaBlock) {
-        vegaBlockContent += line + '\n';
-      } else {
-        currentText += line + '\n';
-      }
-    }
-
-    // Add any remaining text
-    addTextBlock();
-
-    // Handle unclosed blocks
-    if (inCodeBlock) {
-      blocks.push({
-        type: 'code',
-        content: codeBlockContent.trim(),
-        language: codeBlockLanguage || 'text'
-      });
+      
+      // Move past the end marker
+      index = graphEndIndex + graphEndMarker.length;
     }
     
-    if (inVegaBlock) {
-      blocks.push({
-        type: 'text',
-        content: vegaBlockContent.trim()
-      });
+    // Add any remaining text
+    addTextBlock();
+    
+    // If no graph was found with explicit markers, fall back to other methods
+    if (blocks.length === 0 || (blocks.length === 1 && blocks[0].type === 'text')) {
+      // Existing code block parsing logic
+      index = 0;
+      blocks.length = 0;
+      currentText = '';
+      
+      // Find code blocks
+      while (index < content.length) {
+        const codeMatch = content.indexOf('```', index);
+        if (codeMatch === -1) break;
+        
+        // Add text before code block
+        currentText += content.slice(index, codeMatch);
+        addTextBlock();
+        
+        const codeEndMatch = content.indexOf('```', codeMatch + 3);
+        if (codeEndMatch === -1) {
+          // No closing code block found
+          currentText += content.slice(codeMatch);
+          break;
+        }
+        
+        // Extract code block info
+        const codeBlockStart = codeMatch + 3;
+        const nextLine = content.indexOf('\n', codeBlockStart);
+        const language = nextLine !== -1 
+          ? content.slice(codeBlockStart, nextLine).trim() 
+          : '';
+        
+        const codeContent = nextLine !== -1 
+          ? content.slice(nextLine + 1, codeEndMatch).trim()
+          : content.slice(codeBlockStart, codeEndMatch).trim();
+        
+        // Check if it's a chart/vega-lite specification
+        if (language === 'json' || language === 'vega-lite') {
+          try {
+            // Clean JSON by removing comments
+            const cleanedJson = preprocessJsonExpressions(codeContent);
+            const chartData = JSON.parse(cleanedJson);
+            
+            // Debug the chart data
+            debugVegaLiteSpec(chartData);
+            
+            // Check if it looks like a Vega-Lite spec
+            if (chartData.data && chartData.mark && chartData.encoding) {
+              blocks.push({
+                type: 'vega-lite',
+                content: chartData
+              });
+            } else {
+              blocks.push({
+                type: 'code',
+                content: codeContent,
+                language: language || 'json'
+              });
+            }
+          } catch (e) {
+            console.error("Error parsing JSON in code block:", e);
+            blocks.push({
+              type: 'code',
+              content: codeContent,
+              language: language || 'json'
+            });
+          }
+        } else {
+          blocks.push({
+            type: 'code',
+            content: codeContent,
+            language: language || 'text'
+          });
+        }
+        
+        index = codeEndMatch + 3;
+      }
+      
+      // Add remaining text
+      if (index < content.length) {
+        currentText += content.slice(index);
+      }
+      addTextBlock();
+      
+      // Scan for embedded JSON/charts in text blocks
+      if (blocks.length > 0 && blocks[0].type === 'text') {
+        const textContent = blocks[0].content;
+        let graphIndex = 0;
+        const processedBlocks = [];
+        
+        while (graphIndex < textContent.length) {
+          const graph = findNextGraph(graphIndex, textContent);
+          
+          if (!graph) break;
+          
+          // Add text before the graph
+          if (graph.start > graphIndex) {
+            processedBlocks.push({
+              type: 'text',
+              content: textContent.slice(graphIndex, graph.start)
+            });
+          }
+          
+          // Try to parse the graph
+          try {
+            // Already cleaned in findNextGraph
+            let chartData = JSON.parse(graph.content);
+            
+            // Debug the chart data
+            debugVegaLiteSpec(chartData);
+            
+            if (chartData.data && (chartData.mark || chartData.layer) && chartData.encoding) {
+              processedBlocks.push({
+                type: 'vega-lite',
+                content: chartData
+              });
+            } else {
+              // Not a valid chart, treat as text
+              processedBlocks.push({
+                type: 'text',
+                content: graph.content
+              });
+            }
+          } catch (e) {
+            console.error("Error parsing JSON in text block:", e);
+            // Parsing failed, treat as text
+            processedBlocks.push({
+              type: 'text',
+              content: graph.content
+            });
+          }
+          
+          graphIndex = graph.end;
+        }
+        
+        // Add any remaining text
+        if (graphIndex < textContent.length) {
+          processedBlocks.push({
+            type: 'text',
+            content: textContent.slice(graphIndex)
+          });
+        }
+        
+        if (processedBlocks.length > 0) {
+          blocks[0] = processedBlocks[0];
+          if (processedBlocks.length > 1) {
+            blocks.splice(1, 0, ...processedBlocks.slice(1));
+          }
+        }
+      }
     }
-
+    
     return blocks;
   };
 
   // Find the renderMessageContent function and replace it with:
   const renderMessageContent = (message) => {
-    const { content, state } = message;
-    
+    const { content, thinking, thinkingContent, isThinking, showThinking, usingTool } = message;
+    // Extract downloadedFiles from message metadata if present
+    const downloadedFiles = message.metadata?.downloadedFiles;
+
+    // If the avatar is using a tool (like Google Maps), show the tool usage component
+    if (usingTool) {
+    return (
+        <div className="message-content">
+          <MCPToolUsage toolName={usingTool} isLoading={true} />
+          </div>
+      );
+    }
+
+    // Handle thinking state (existing code)
+    if (isThinking) {
+      return (
+        <div className="message-content">
+          <div className="thinking-indicator">
+            <div className="thinking-dot"></div>
+            <div className="thinking-dot"></div>
+            <div className="thinking-dot"></div>
+            </div>
+          </div>
+      );
+    }
+
     if (!content.text) {
       console.log('Attempted to render null/undefined message text');
       return null;
     }
 
     const blocks = parseContentToBlocks(content.text);
-    return <MessageContent blocks={blocks} />;
+    // Pass downloadedFiles to MessageContent component if present
+    return <MessageContent blocks={blocks} downloadedFiles={downloadedFiles} />;
   };
 
   return (
@@ -802,67 +909,14 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
                   </div>
                 </div>
               ) : (
-                <div>
-                  {/* Display thinking content if available and expanded */}
-                  {message.metadata.thinkingContent && (
-                    <div className="mb-3">
-                      <button 
-                        onClick={() => toggleThinking(message.id)}
-                        className="text-xs px-2 py-1 mb-2 rounded bg-gray-200 hover:bg-gray-300 flex items-center"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                          {expandedThinking[message.id] ? (
-                            <path fillRule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clipRule="evenodd" />
-                          ) : (
-                            <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-                          )}
-                        </svg>
-                        {expandedThinking[message.id] ? "Hide thinking" : "Show thinking"}
-                      </button>
-                      {expandedThinking[message.id] && (
-                        <div className="p-3 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-600 whitespace-pre-wrap">
-                          {message.metadata.thinkingContent}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {renderMessageContent(message)}
-                  {message.state.type === 'streaming' && (
-                    <div className="mt-2 animate-pulse flex space-x-2 items-center">
-                      <div className="h-1 w-1 bg-green-400 rounded-full"></div>
-                      <div className="h-1 w-1 bg-green-400 rounded-full"></div>
-                      <div className="h-1 w-1 bg-green-400 rounded-full"></div>
-                    </div>
-                  )}
-                </div>
+                renderMessageContent(message)
               )}
             </div>
-            {message.metadata.isUser && (
-              <div className="flex-shrink-0">
-                {userDetails.imageUrl ? (
-                  <img 
-                    src={getAvatarImageUrl(userDetails.imageUrl)} 
-                    alt="You" 
-                    className="w-8 h-8 rounded-full object-cover" 
-                    title={userDetails.name || "You"}
-                    onError={(e) => handleImageError(e, "User")}
-                  />
-                ) : (
-              <div 
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0 ${getAvatarColor(true)}`}
-                    title={userDetails.name || "You"}
-              >
-                    {userDetails.name ? getInitials(userDetails.name) : 'U'}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         );
       })}
-      <div ref={messagesEndRef} />
     </div>
   );
 };
 
-export default ChatWindow; 
+export default ChatWindow;

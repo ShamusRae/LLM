@@ -564,15 +564,17 @@ const AppRoutes = () => {
                   Session ID: {sessionId}
                 </span>
               </div>
-              <div className="flex-grow">
-                <ChatWindow 
-                  messages={messages} 
-                  selectedAvatar={activeAvatars[0]} 
-                  sessionId={sessionId}
-                />
-              </div>
-              <div className="mt-4">
-                <ChatInput onSendMessage={handleSendMessage} />
+              <div className="bg-white rounded-lg border shadow-sm flex flex-col">
+                <div className="flex-grow overflow-y-auto">
+                  <ChatWindow 
+                    messages={messages} 
+                    selectedAvatar={activeAvatars[0]} 
+                    sessionId={sessionId}
+                  />
+                </div>
+                <div className="border-t p-3">
+                  <ChatInput onSendMessage={handleSendMessage} />
+                </div>
               </div>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import DataFeedsSelector from './DataFeedsSelector';
 
 const SettingsScreen = () => {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ const SettingsScreen = () => {
   const [error, setError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [enabledDataFeeds, setEnabledDataFeeds] = useState([]);
 
   const availableLLMs = [
     { value: 'gpt4', label: 'GPT-4' },
@@ -40,6 +42,7 @@ const SettingsScreen = () => {
           setFileClassificationModel(res.data.fileClassificationModel || '');
           setUserDetails(res.data.userDetails || { name: '', title: '', description: '', imageUrl: null });
           setMemory(res.data.memory || []);
+          setEnabledDataFeeds(res.data.enabledDataFeeds || ['google-maps-search']);
         }
       })
       .catch(err => {
@@ -82,7 +85,8 @@ const SettingsScreen = () => {
       defaultLLM,
       fileClassificationModel,
       userDetails,
-      memory
+      memory,
+      enabledDataFeeds
     };
 
     try {
@@ -346,6 +350,20 @@ const SettingsScreen = () => {
                   placeholder="Enter a brief description"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Data Feeds Section */}
+          <div className="space-y-6">
+            <h2 className="text-lg font-medium text-gray-900">Data Feeds</h2>
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <p className="text-sm text-gray-700 mb-4">
+                Select which external data sources the AI can access. Deselect sources you don't need to improve performance.
+              </p>
+              <DataFeedsSelector 
+                onSelectionChange={setEnabledDataFeeds} 
+                initialSelection={enabledDataFeeds}
+              />
             </div>
           </div>
 

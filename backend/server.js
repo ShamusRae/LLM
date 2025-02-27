@@ -130,11 +130,13 @@ app.use((req, res, next) => {
 const fileRoutes = require('./routes/file.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const chatRoutes = require('./routes/chat.routes');
+const mcpRoutes = require('./routes/mcp.routes');
 
 // Register routes
 app.use('/api/file', fileRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/mcp', mcpRoutes);
 
 // Import the chooseAvatar controller
 const chooseAvatarController = require('./controllers/chooseAvatar.controller');

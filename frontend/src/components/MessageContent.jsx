@@ -1,118 +1,193 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import MarkdownIt from 'markdown-it';
 import vegaEmbed from 'vega-embed';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import rehypeRaw from 'rehype-raw';
+import { 
+  FaFilePdf, 
+  FaFileExcel, 
+  FaFileWord, 
+  FaFileAlt, 
+  FaDownload 
+} from 'react-icons/fa';
+
+// Copy button component
+const CopyButton = ({ text }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute top-2 right-2 p-2 rounded-md bg-gray-700 text-white text-sm hover:bg-gray-600 transition-colors"
+    >
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+};
 
 // Initialize markdown parser
 const md = new MarkdownIt({
   html: true,
   linkify: true,
-  typographer: true
+  typographer: true,
+  breaks: true
 });
 
-// Validate if an object is a proper Vega-Lite spec
+// Enhanced validation for Vega-Lite specs
 const isValidVegaLiteSpec = (spec) => {
-  // Basic structure validation
+  // Basic validation
   if (!spec || typeof spec !== 'object') return false;
   
-  // Must have either data, datasets, or url
-  if (!spec.data && !spec.datasets && !spec.url) return false;
+  // Check if data is defined (either inline or from a URL or named data source)
+  const hasData = spec.data || spec.url || (spec.datasets && Object.keys(spec.datasets).length > 0);
+  if (!hasData) return false;
   
-  // Must have mark or layer or marks
-  if (!spec.mark && !spec.layer && !spec.marks) return false;
-  
-  // Ensure mark.type is properly defined if mark is an object
-  if (spec.mark && typeof spec.mark === 'object') {
-    if (!spec.mark.type) {
-      console.warn('Fixing missing mark.type in spec');
-      // Default to a bar chart if type is missing
-      spec.mark.type = 'bar';
-    }
-    
-    // Validate that mark.type is a string and a valid mark type
-    const validMarkTypes = ['area', 'bar', 'line', 'point', 'text', 'tick', 'rect', 'circle', 'square', 'geoshape'];
-    if (!validMarkTypes.includes(spec.mark.type)) {
-      console.warn(`Invalid mark type "${spec.mark.type}", defaulting to "point"`);
-      spec.mark.type = 'point';
-    }
-  } else if (typeof spec.mark === 'string') {
-    // If mark is a string, ensure it's a valid mark type
-    const validMarkTypes = ['area', 'bar', 'line', 'point', 'text', 'tick', 'rect', 'circle', 'square', 'geoshape'];
-    if (!validMarkTypes.includes(spec.mark)) {
-      console.warn(`Invalid mark type "${spec.mark}", defaulting to "point"`);
-      spec.mark = 'point';
-    }
+  // Check if mark is present
+  const hasMark = spec.mark !== undefined;
+  if (!hasMark && !spec.layer && !spec.hconcat && !spec.vconcat && !spec.facet) {
+    // No mark and no composite visualization
+    return false;
   }
   
-  // Sanitize the data values if they exist and contain expressions
-  if (spec.data && spec.data.values && Array.isArray(spec.data.values)) {
-    try {
-      // Look for any JavaScript expressions in the data values
-      spec.data.values = spec.data.values.map(item => {
-        if (item && typeof item === 'object') {
-          const sanitizedItem = {};
-          // For each property in the data item
-          Object.keys(item).forEach(key => {
-            const value = item[key];
-            // If the value is a string containing an expression
-            if (typeof value === 'string' && 
-                (value.includes('+') || value.includes('*') || 
-                 value.includes('/') || value.includes('-'))) {
-              try {
-                // Only evaluate if it looks like a numeric expression
-                if (/^[\d\s\+\-\*\/\(\)\.]+$/.test(value)) {
-                  sanitizedItem[key] = eval(value);
-                } else {
-                  sanitizedItem[key] = value;
-                }
-              } catch (e) {
-                sanitizedItem[key] = value;
-              }
-            } else {
-              sanitizedItem[key] = value;
-            }
-          });
-          return sanitizedItem;
-        }
-        return item;
-      });
-    } catch (error) {
-      console.warn('Error sanitizing data values:', error);
-    }
-  }
-  
-  // Check for common issues in encoding channels
-  if (spec.encoding) {
-    // Make sure encoding channels match mark type
-    const markType = typeof spec.mark === 'string' ? spec.mark : spec.mark.type;
-    
-    // For area charts, ensure they have at least x/y or x2/y2
-    if (markType === 'area' && 
-        !(spec.encoding.x || spec.encoding.y || spec.encoding.x2 || spec.encoding.y2)) {
-      console.warn('Area chart missing required encoding channels');
-      return false;
-    }
-    
-    // For line charts, ensure they have at least an x or y
-    if (markType === 'line' && !(spec.encoding.x || spec.encoding.y)) {
-      console.warn('Line chart missing required encoding channels');
-      return false;
-    }
-  }
-  
-  // If it's a layered or multi-view spec, do basic validation
-  if (spec.layer || spec.hconcat || spec.vconcat || spec.facet) {
+  // For compositional specs (layer, vconcat, hconcat), check if they have valid components
+  if (spec.layer && Array.isArray(spec.layer)) {
+    // It's a layered plot, which is valid without main mark
+    if (spec.layer.length === 0) return false;
     return true;
   }
   
-  // For Vega specs (more complex)
-  if (spec.marks && Array.isArray(spec.marks)) {
+  if (spec.hconcat && Array.isArray(spec.hconcat)) {
+    // It's a horizontal concatenation, which is valid without main mark
+    if (spec.hconcat.length === 0) return false;
     return true;
   }
   
-  return true;
+  if (spec.vconcat && Array.isArray(spec.vconcat)) {
+    // It's a vertical concatenation, which is valid without main mark
+    if (spec.vconcat.length === 0) return false;
+    return true;
+  }
+  
+  if (spec.facet && typeof spec.facet === 'object') {
+    // It's a facet, which is valid without main mark if it has a spec
+    return !!spec.spec;
+  }
+  
+  // Only proceed with mark validation if we have a mark
+  if (hasMark) {
+    // List of valid mark types (from Vega-Lite documentation)
+    const validMarkTypes = [
+      'bar', 'line', 'area', 'point', 'tick', 'rect', 'circle', 'square',
+      'rule', 'text', 'trail', 'arc', 'boxplot', 'errorband', 'errorbar',
+      'geoshape', 'image', 'density'
+    ];
+    
+    // Check if encoding is present (only required for non-composite visualizations)
+    const hasEncoding = spec.encoding && Object.keys(spec.encoding).length > 0;
+    if (!hasEncoding && !spec.layer && !spec.hconcat && !spec.vconcat && !spec.facet) {
+      // Single mark must have encoding
+      return false;
+    }
+    
+    // Validate mark type
+    if (typeof spec.mark === 'string') {
+      return validMarkTypes.includes(spec.mark);
+    } else if (typeof spec.mark === 'object' && spec.mark.type) {
+      return validMarkTypes.includes(spec.mark.type);
+    }
+  }
+  
+  // There's something wrong with the mark specification
+  return false;
 };
 
-// Add a backup minimal spec when validation fails
+// Safely normalize the spec
+const normalizeVegaLiteSpec = (spec) => {
+  try {
+    // Create a deep copy to avoid modifying the original
+    const normalizedSpec = JSON.parse(JSON.stringify(spec));
+    
+    // Ensure the schema is set correctly
+    normalizedSpec.$schema = normalizedSpec.$schema || 'https://vega.github.io/schema/vega-lite/v5.json';
+    
+    // Basic sizing for better appearance
+    normalizedSpec.width = normalizedSpec.width || 'container';
+    normalizedSpec.autosize = normalizedSpec.autosize || { type: 'fit', contains: 'padding' };
+    
+    // Ensure config exists
+    if (!normalizedSpec.config) {
+      normalizedSpec.config = {};
+    }
+    
+    // Ensure config.mark exists
+    if (!normalizedSpec.config.mark) {
+      normalizedSpec.config.mark = { tooltip: true };
+    }
+    
+    // Initialize an empty config for all mark types to prevent undefined access
+    const markTypes = [
+      'bar', 'line', 'area', 'point', 'tick', 'rect', 'circle', 'square',
+      'rule', 'text', 'trail', 'arc', 'boxplot', 'errorband', 'errorbar',
+      'geoshape', 'image', 'density'
+    ];
+    
+    markTypes.forEach(type => {
+      if (!normalizedSpec.config[type]) {
+        normalizedSpec.config[type] = {};
+      }
+    });
+    
+    // If it's a layered chart, normalize all layers
+    if (normalizedSpec.layer && Array.isArray(normalizedSpec.layer)) {
+      normalizedSpec.layer = normalizedSpec.layer.map(layerSpec => {
+        // Normalize mark in each layer
+        if (layerSpec.mark) {
+          if (typeof layerSpec.mark === 'string') {
+            layerSpec.mark = { type: layerSpec.mark };
+          }
+        }
+        return layerSpec;
+      });
+    }
+    
+    // If it's a basic chart with a mark, normalize the mark
+    if (normalizedSpec.mark) {
+      // Convert string marks to objects
+      if (typeof normalizedSpec.mark === 'string') {
+        const markType = normalizedSpec.mark;
+        normalizedSpec.mark = { type: markType };
+      }
+      
+      // Ensure mark is an object with type
+      if (!normalizedSpec.mark || typeof normalizedSpec.mark !== 'object') {
+        normalizedSpec.mark = { type: 'bar' }; // Default fallback
+      }
+      
+      // Ensure mark.type exists and is valid
+      if (!normalizedSpec.mark.type) {
+        normalizedSpec.mark.type = 'bar'; // Default fallback
+      }
+    }
+    
+    return normalizedSpec;
+  } catch (e) {
+    console.error('Error normalizing Vega-Lite spec:', e);
+    return null;
+  }
+};
+
 const createFallbackSpec = () => {
   // Create a simple bar chart as a guaranteed-to-work fallback
   return {
@@ -136,422 +211,764 @@ const createFallbackSpec = () => {
   };
 };
 
-// Simple component for rendering blocks of different types
-const MessageContent = ({ blocks = [] }) => {
-  // Single ref for all chart containers
-  const chartContainerRef = useRef(null);
-  
-  // Use a single effect to handle all Vega-Lite chart rendering
+const MessageContent = ({ blocks = [], downloadedFiles }) => {
+  const chartContainers = useRef({});
+  const [parsedTables, setParsedTables] = useState({});
+  // Track which charts have already been rendered to prevent re-rendering on state change
+  const renderedCharts = useRef(new Set());
+  // Keep track of chart errors to display custom error messages
+  const [chartErrors, setChartErrors] = useState({});
+  // Track embedded tables found in markdown content
+  const [markdownTables, setMarkdownTables] = useState({});
+  // Add state to detect when message is fully loaded
+  const [messageComplete, setMessageComplete] = useState(false);
+  // Add a ref to track rendering attempts
+  const renderAttempts = useRef({});
+  // Add a ref to store timers for cleanup
+  const timersRef = useRef([]);
+
+  // First useEffect - handle Vega-Lite charts
   useEffect(() => {
-    // Only proceed if we have a reference and blocks to process
-    if (!chartContainerRef.current) return;
+    // Handle Vega-Lite visualizations
+    const vegaBlocks = blocks.filter(block => block.type === 'vega-lite');
     
-    const chartContainer = chartContainerRef.current;
+    // Track if any charts were attempted to be rendered in this effect run
+    let chartsAttempted = false;
+    let successfulRenders = 0;
     
-    // Clear previous charts
-    while (chartContainer.firstChild) {
-      chartContainer.removeChild(chartContainer.firstChild);
-    }
-    
-    // Process all vega-lite blocks
-    blocks.forEach((block, index) => {
-      if (block.type !== 'vega-lite' || !block.content) return;
+    vegaBlocks.forEach((block, index) => {
+      // Generate a unique ID for this chart based on its content and index
+      // Adding more uniqueness with JSON.stringify of the whole content, not just length
+      const contentString = typeof block.content === 'string' 
+        ? block.content 
+        : JSON.stringify(block.content);
+      const contentHash = contentString.length + '-' + (contentString.length > 20 ? 
+        contentString.substring(0, 10) + contentString.substring(contentString.length - 10) : contentString);
+      const chartId = `chart-${index}-${contentHash}`;
+      const container = chartContainers.current[index];
       
-      try {
-        // Create a container for this specific chart
-        const chartDiv = document.createElement('div');
-        chartDiv.id = `vega-chart-${index}`;
-        chartDiv.className = 'vega-chart-container mb-4 p-4 border border-gray-200 rounded-lg bg-white';
-        chartDiv.style.minHeight = '300px'; // Increased from 200px
-        chartDiv.style.width = '100%';
-        
-        // Add width override to ensure charts are wide enough
-        chartDiv.style.minWidth = '400px';
-        chartContainer.appendChild(chartDiv);
-        
-        // Detailed debugging log of the original chart spec
-        console.log(`Chart ${index} - Original spec:`, JSON.stringify(block.content, null, 2));
-        
-        // Validate and fix the spec if needed
-        let spec = structuredClone(block.content); // Deep clone to avoid modifying original
-        let fallbackUsed = false;
-        
-        // Detailed logging of mark property to diagnose the issue
-        if (spec.mark) {
-          console.log(`Chart ${index} - Mark property type: ${typeof spec.mark}`);
-          console.log(`Chart ${index} - Mark value:`, spec.mark);
-          
-          if (typeof spec.mark === 'object') {
-            console.log(`Chart ${index} - Mark.type:`, spec.mark.type);
-          }
-        }
-        
-        // Debug encoding as well if present
-        if (spec.encoding) {
-          console.log(`Chart ${index} - Encoding:`, spec.encoding);
-        }
-        
-        // Specially handle the config[mark.type][channel] error case
-        try {
-          // First, ensure there's a schema
-          spec.$schema = "https://vega.github.io/schema/vega-lite/v5.json";
-          
-          // Force simple x/y encodings if not present
-          if (!spec.encoding) {
-            spec.encoding = {};
-          }
-          
-          // Debug encoding channels in detail
-          if (spec.encoding) {
-            console.log(`Chart ${index} - Examining encoding channels:`);
-            Object.entries(spec.encoding).forEach(([channel, config]) => {
-              console.log(`  - Channel "${channel}": `, config);
-              
-              // Check for common issues with encoding channels
-              if (config && typeof config === 'object') {
-                if (!config.field && !config.value) {
-                  console.warn(`  - Warning: Channel "${channel}" has neither field nor value`);
-                }
-                if (!config.type) {
-                  console.warn(`  - Warning: Channel "${channel}" is missing type`);
-                  // Add default type based on channel
-                  if (['x', 'y', 'theta', 'radius'].includes(channel)) {
-                    config.type = 'quantitative';
-                    console.log(`  - Fixed: Added default quantitative type to ${channel}`);
-                  } else if (['color', 'shape', 'size'].includes(channel)) {
-                    config.type = 'nominal';
-                    console.log(`  - Fixed: Added default nominal type to ${channel}`);
-                  }
-                }
-              }
-            });
-          }
-          
-          // Ensure the encoding has some basic channels 
-          if (!spec.encoding.x && !spec.encoding.y) {
-            // If neither x nor y exists, add a default x
-            spec.encoding.x = { "field": "x", "type": "quantitative" };
-          }
-          
-          // Check if mark exists but has issues
-          if (spec.mark && typeof spec.mark === 'object' && !spec.mark.type) {
-            console.warn('Found mark object without type. Adding default type "bar"');
-            spec.mark.type = 'bar';
-          }
-          
-          // If mark is not an object or string, convert it
-          if (spec.mark && typeof spec.mark !== 'object' && typeof spec.mark !== 'string') {
-            console.warn(`Mark is invalid type (${typeof spec.mark}). Converting to string "bar"`);
-            spec.mark = 'bar';
-          }
-          
-          // If mark is still undefined after all checks, set a default
-          if (!spec.mark) {
-            console.warn('No mark found, adding default bar mark');
-            spec.mark = 'bar';
-          }
-          
-          // Ensure data exists
-          if (!spec.data && !spec.datasets && !spec.url) {
-            console.warn('No data source found, adding minimal dataset');
-            spec.data = {
-              values: [
-                { x: 0, y: 0 },
-                { x: 1, y: 1 },
-                { x: 2, y: 2 }
-              ]
-            };
-          }
-        } catch (markError) {
-          console.error('Error fixing mark:', markError);
-        }
-        
-        if (!isValidVegaLiteSpec(spec)) {
-          console.warn('Invalid Vega-Lite spec, using fallback', spec);
-          spec = createFallbackSpec();
-          fallbackUsed = true;
-        } else {
-          console.log('Valid spec detected, proceeding with render');
-          
-          // Add width to the spec if it doesn't already have it
-          if (!spec.width) {
-            spec = {...spec, width: 'container'};
-          }
-          
-          // Add height if it doesn't exist
-          if (!spec.height) {
-            spec = {...spec, height: 250};
-          }
-        }
-        
-        // Log the final spec that will be used for rendering
-        console.log(`Chart ${index} - Final spec:`, JSON.stringify(spec, null, 2));
-        
-        // Use vegaEmbed with additional config options and error handling
-        vegaEmbed(chartDiv, spec, { 
-          actions: true,
-          theme: 'light',
-          renderer: 'canvas',
-          logLevel: 2, // warn level
-          defaultStyle: true,
-          config: {
-            // Add default config to help with common issues
-            mark: { tooltip: true },
-            axis: { titlePadding: 10 }
-          },
-          width: spec.width || 'container', // Ensure width is set
-          height: spec.height || 250,       // Ensure height is set
-          padding: { left: 5, top: 5, right: 5, bottom: 5 }
-        }).then(() => {
-          // Chart rendered successfully - add a fallback button for complex charts
-          // This allows users to try a simplified version if the chart looks wrong
-          if (spec.layer || (spec.encoding && Object.keys(spec.encoding).length > 3)) {
-            const simplifyButton = document.createElement('button');
-            simplifyButton.className = 'mt-2 p-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200';
-            simplifyButton.textContent = 'View Simple Version';
-            simplifyButton.style.position = 'absolute';
-            simplifyButton.style.bottom = '10px';
-            simplifyButton.style.right = '10px';
-            
-            simplifyButton.addEventListener('click', () => {
-              // Create a simplified version of the chart
-              const simpleSpec = {
-                "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-                "description": "Simplified chart",
-                "width": "container",
-                "height": 250,
-                "data": spec.data, // Use the same data
-                "mark": "bar",     // Use a simple mark type
-                "encoding": {}     // Build encoding based on original
-              };
-              
-              // Try to use original encodings for x and y if they exist
-              if (spec.encoding) {
-                if (spec.encoding.x) {
-                  simpleSpec.encoding.x = spec.encoding.x;
-                }
-                if (spec.encoding.y) {
-                  simpleSpec.encoding.y = spec.encoding.y;
-                }
-              }
-              
-              // If we don't have good x/y encodings, create defaults from the data
-              if (!simpleSpec.encoding.x || !simpleSpec.encoding.y) {
-                // Try to get field names from the data
-                let sampleData = null;
-                if (spec.data && spec.data.values && spec.data.values.length > 0) {
-                  sampleData = spec.data.values[0];
-                }
-                
-                // If we have sample data, use the first two fields
-                if (sampleData) {
-                  const fields = Object.keys(sampleData);
-                  if (fields.length > 0) {
-                    simpleSpec.encoding.x = {
-                      "field": fields[0],
-                      "type": typeof sampleData[fields[0]] === 'number' ? "quantitative" : "nominal"
-                    };
-                    
-                    if (fields.length > 1) {
-                      simpleSpec.encoding.y = {
-                        "field": fields[1],
-                        "type": typeof sampleData[fields[1]] === 'number' ? "quantitative" : "nominal"
-                      };
-                    }
-                  }
-                }
-              }
-              
-              // Clear the chart div and render the simple version
-              chartDiv.innerHTML = '';
-              
-              vegaEmbed(chartDiv, simpleSpec, {
-                actions: true,
-                theme: 'light',
-                renderer: 'canvas'
-              }).then(() => {
-                // Add a back button
-                const backButton = document.createElement('button');
-                backButton.className = 'mt-2 p-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200';
-                backButton.textContent = 'Back to Original';
-                backButton.style.position = 'absolute';
-                backButton.style.bottom = '10px';
-                backButton.style.right = '10px';
-                
-                backButton.addEventListener('click', () => {
-                  // Remove this button
-                  backButton.remove();
-                  
-                  // Re-render the original chart
-                  chartDiv.innerHTML = '';
-                  vegaEmbed(chartDiv, spec, {
-                    actions: true,
-                    theme: 'light',
-                    renderer: 'canvas'
-                  }).then(() => {
-                    // Add the simplify button again
-                    chartDiv.appendChild(simplifyButton);
-                  });
-                });
-                
-                chartDiv.appendChild(backButton);
-                
-                // Add notice that this is a simplified version
-                const notice = document.createElement('div');
-                notice.className = 'bg-blue-50 text-blue-700 p-2 text-xs rounded absolute top-2 right-2';
-                notice.textContent = 'Simplified chart view';
-                chartDiv.appendChild(notice);
-              });
-            });
-            
-            chartDiv.appendChild(simplifyButton);
-          }
-        }).catch(error => {
-          console.error(`Chart ${index} - Error rendering:`, error);
-          console.error(`Chart ${index} - Error details:`, error.stack);
-          
-          // Check for the specific mark.type error
-          if (error.toString().includes("config[mark.type][channel]")) {
-            console.warn(`Chart ${index} - Detected mark.type configuration error, creating super-simplified spec`);
-            
-            // Create a guaranteed to work spec (minimal bar chart)
-            const guaranteedSpec = {
-              "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-              "description": "Emergency fallback chart",
-              "width": "container",
-              "height": 250,
-              "data": {
-                "values": [
-                  {"month": "Jan", "value": 10},
-                  {"month": "Feb", "value": 20},
-                  {"month": "Mar", "value": 30},
-                  {"month": "Apr", "value": 15},
-                  {"month": "May", "value": 25},
-                ]
-              },
-              "mark": "bar",
-              "encoding": {
-                "x": {"field": "month", "type": "nominal"},
-                "y": {"field": "value", "type": "quantitative"}
-              }
-            };
-            
-            console.log(`Chart ${index} - Emergency fallback spec:`, guaranteedSpec);
-            
-            // Try rendering with the guaranteed spec
-            vegaEmbed(chartDiv, guaranteedSpec, { 
-              actions: true,
-              theme: 'light',
-              renderer: 'canvas'
-            }).then(() => {
-              // Add a warning that this is a fallback chart
-              const warningEl = document.createElement('div');
-              warningEl.className = 'bg-yellow-100 text-yellow-800 p-2 mt-2 text-sm rounded';
-              warningEl.innerHTML = '<strong>Note:</strong> The original chart specification had errors and could not be rendered. This is a placeholder chart.';
-              chartDiv.appendChild(warningEl);
-            }).catch(lastError => {
-              // If even our guaranteed spec fails, show error message with raw HTML
-              console.error(`Chart ${index} - Emergency fallback also failed:`, lastError);
-              chartDiv.innerHTML = `
-                <div class="flex flex-col items-center justify-center h-full">
-                  <div class="bg-red-50 p-4 rounded-lg border border-red-200 max-w-md">
-                    <h3 class="text-lg font-bold text-red-800 mb-2">Chart Rendering Failed</h3>
-                    <p class="text-red-700 mb-2">Unable to render this chart due to specification errors.</p>
-                    <div class="bg-white p-3 rounded text-sm overflow-auto max-h-32 font-mono">
-                      ${error.message}
-                    </div>
-                    <p class="text-xs text-gray-500 mt-4">Check the browser console for more details.</p>
-                  </div>
-                </div>
-              `;
-            });
-          } else {
-            // Standard error handling for other errors
-            chartDiv.innerHTML = `
-              <div class="error-message p-4 border border-red-300 rounded bg-red-50 text-red-700">
-                <p><strong>Error rendering chart:</strong> ${error.message}</p>
-                <p class="text-sm mt-2">Check the console for more details.</p>
-              </div>
-            `;
-          }
-        });
-        
-        // If we used a fallback, add an error note
-        if (fallbackUsed) {
-          const errorNote = document.createElement('div');
-          errorNote.className = 'chart-error-note p-2 text-xs text-red-600';
-          errorNote.textContent = 'The original chart specification was invalid or incomplete.';
-          chartDiv.appendChild(errorNote);
-        }
-      } catch (error) {
-        console.error('Failed to process Vega-Lite spec:', error);
+      chartsAttempted = true;
+      
+      // Skip if container doesn't exist
+      if (!container) {
+        console.log(`Container for chart ${index} doesn't exist, skipping`);
+        return;
       }
+      
+      // Initialize or increment render attempts counter
+      renderAttempts.current[chartId] = (renderAttempts.current[chartId] || 0) + 1;
+      
+      // Check if we already rendered this exact chart AND the container has vega content
+      const hasVegaContent = container.querySelector('.vega-embed') || container.querySelector('.marks');
+      if (renderedCharts.current.has(chartId) && hasVegaContent) {
+        console.log(`Chart ${chartId} already rendered, skipping (attempt ${renderAttempts.current[chartId]})`);
+        return;
+      }
+
+      // If we've tried too many times for this chart, skip to avoid infinite loops
+      if (renderAttempts.current[chartId] > 10) {
+        console.warn(`Too many render attempts for chart ${chartId}, giving up`);
+        return;
+      }
+
+      console.log(`Attempting to render chart ${index} with ID ${chartId} (attempt ${renderAttempts.current[chartId]})`);
+      
+      // Parse the spec
+      let rawSpec;
+      try {
+        rawSpec = typeof block.content === 'string' 
+          ? JSON.parse(block.content) 
+          : block.content;
+      } catch (e) {
+        console.error('Failed to parse Vega-Lite spec:', e);
+        setChartErrors(prev => ({...prev, [index]: 'Invalid JSON in chart specification'}));
+        return;
+      }
+
+      // Validate the Vega-Lite spec
+      if (!isValidVegaLiteSpec(rawSpec)) {
+        console.warn('Invalid Vega-Lite specification', rawSpec);
+        setChartErrors(prev => ({...prev, [index]: 'Invalid Vega-Lite specification format'}));
+        
+        // Try to render with the fallback spec
+        rawSpec = createFallbackSpec();
+      }
+
+      // Normalize the spec to prevent errors
+      const spec = normalizeVegaLiteSpec(rawSpec);
+      if (!spec) {
+        setChartErrors(prev => ({...prev, [index]: 'Failed to normalize chart specification'}));
+        return;
+      }
+
+      console.log(`Rendering chart ${chartId}`, spec);
+      
+      // Always clear container before rendering to avoid stale content
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
+
+      // Reset error for this chart
+      setChartErrors(prev => {
+        const newErrors = {...prev};
+        delete newErrors[index];
+        return newErrors;
+      });
+
+      // Embed chart with better error handling
+      vegaEmbed(container, spec, {
+        actions: true,
+        theme: 'dark',
+        renderer: 'canvas',
+        defaultStyle: true, // Use default styles to avoid missing CSS
+        logLevel: 2, // Show warnings
+        tooltip: true, // Enable tooltips
+        config: {
+          // Add a base config to ensure all mark types have default values
+          mark: { tooltip: true },
+          bar: { fill: '#4C78A8' },
+          line: { stroke: '#4C78A8' },
+          area: { fill: '#4C78A8' },
+          point: { filled: true, size: 60 },
+          rect: { fill: '#4C78A8' },
+          // Add sensible defaults for all mark types
+          axis: {
+            labelFontSize: 11,
+            titleFontSize: 13,
+            titlePadding: 10
+          },
+          // Better fonts for text
+          text: {
+            fontSize: 11,
+            font: 'sans-serif'
+          },
+          // Enable tooltips globally
+          view: {
+            stroke: null
+          },
+          // Ensure titles are readable
+          title: {
+            fontSize: 16,
+            font: 'sans-serif'
+          }
+        }
+      }).then(result => {
+        // Mark this chart as rendered
+        renderedCharts.current.add(chartId);
+        successfulRenders++;
+        console.log(`Successfully rendered chart ${chartId} (${successfulRenders}/${vegaBlocks.length} charts rendered)`);
+        
+        // Force a small timeout and re-render to ensure the chart is properly sized
+        setTimeout(() => {
+          if (result && result.view) {
+            try {
+              result.view.resize().run();
+              console.log(`Chart ${chartId} resized and re-run`);
+            } catch (e) {
+              console.warn(`Failed to resize chart ${chartId}:`, e);
+            }
+          }
+        }, 100);
+      }).catch(error => {
+        console.error('Error embedding chart:', error);
+        console.error('Problematic spec:', JSON.stringify(spec, null, 2));
+        
+        // More detailed error logging to help identify issues
+        if (spec.mark) {
+          console.error(`Mark type: ${typeof spec.mark === 'string' ? spec.mark : spec.mark.type}`);
+        }
+        if (spec.encoding) {
+          console.error(`Encoding channels: ${Object.keys(spec.encoding).join(', ')}`);
+        }
+        if (spec.config) {
+          console.error(`Config keys: ${Object.keys(spec.config).join(', ')}`);
+        }
+        
+        setChartErrors(prev => ({
+          ...prev, 
+          [index]: `Failed to render chart: ${error.message}`
+        }));
+        
+        // Create an error message element
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'chart-error p-4 bg-red-50 text-red-700 border border-red-300 rounded';
+        errorDiv.innerHTML = `
+          <p class="font-bold">Failed to render chart: ${error.message}</p>
+          <p class="text-sm mt-2">Try refreshing the page or contact support if the issue persists.</p>
+        `;
+        
+        // Clear container and add error message
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+        container.appendChild(errorDiv);
+      });
     });
-    
-    // Cleanup function
+
+    // After processing all charts, check if all were rendered successfully
+    if (vegaBlocks.length > 0) {
+      // Schedule a short timeout to allow any async rendering to complete
+      setTimeout(() => {
+        // Count how many charts appear to be rendered
+        const renderedCount = vegaBlocks.reduce((count, _, index) => {
+          const container = chartContainers.current[index];
+          const hasVegaContent = container && (container.querySelector('.vega-embed') || container.querySelector('.marks'));
+          return hasVegaContent ? count + 1 : count;
+        }, 0);
+        
+        console.log(`Chart rendering summary: ${renderedCount}/${vegaBlocks.length} charts appear to be rendered`);
+        
+        // If all charts are rendered, trigger a final resize
+        if (renderedCount === vegaBlocks.length) {
+          console.log('All charts rendered, performing final resize');
+          vegaBlocks.forEach((_, index) => {
+            const container = chartContainers.current[index];
+            if (container) {
+              const vegaView = container.querySelector('.vega-embed')?.querySelector('.marks');
+              if (vegaView) {
+                // Try to access the Vega view to trigger resize
+                try {
+                  const vegaChart = vegaView.__view__;
+                  if (vegaChart && vegaChart.resize) {
+                    vegaChart.resize().run();
+                  }
+                } catch (e) {
+                  // Ignore errors accessing the view
+                }
+              }
+            }
+          });
+        }
+      }, 200);
+    }
+
+    // If we had chart blocks but no rendering was attempted, schedule a re-render
+    // This helps when containers aren't ready yet but we have chart data
+    if (vegaBlocks.length > 0 && !chartsAttempted) {
+      const reRenderTimer = setTimeout(() => {
+        console.log('Scheduling chart re-render attempt');
+        // Force re-render by creating a new ref
+        chartContainers.current = { ...chartContainers.current };
+      }, 500);
+      
+      // Store the timer for cleanup
+      timersRef.current.push(reRenderTimer);
+    }
+
+    // Cleanup function for all timers
     return () => {
-      while (chartContainer.firstChild) {
-        chartContainer.removeChild(chartContainer.firstChild);
+      // Clear all timers
+      timersRef.current.forEach(timer => clearTimeout(timer));
+      timersRef.current = [];
+      
+      // Only clear rendered charts when component unmounts
+      if (blocks.length === 0) {
+        renderedCharts.current.clear();
       }
     };
   }, [blocks]);
-  
-  // Render function for text blocks
-  const renderTextBlock = (content, index) => {
-    const html = md.render(content);
-    return (
-      <div 
-        key={`text-${index}`} 
-        className="text-block prose prose-slate" 
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
+
+  // New useEffect to handle rendering charts after message is complete
+  useEffect(() => {
+    // Only run once per block update
+    if (!messageComplete) {
+      // Mark message as complete after a delay
+      const timer = setTimeout(() => {
+        setMessageComplete(true);
+        console.log('Message marked as complete, checking for unrendered charts');
+        
+        // Force a re-render attempt of all charts
+        const vegaBlocks = blocks.filter(block => block.type === 'vega-lite');
+        if (vegaBlocks.length > 0) {
+          console.log(`Attempting to render ${vegaBlocks.length} charts after completion`);
+          
+          // Force a more aggressive re-render of all charts
+          vegaBlocks.forEach((block, index) => {
+            // Generate chart ID similar to the main useEffect
+            const contentString = typeof block.content === 'string' 
+              ? block.content 
+              : JSON.stringify(block.content);
+            const contentHash = contentString.length + '-' + (contentString.length > 20 ? 
+              contentString.substring(0, 10) + contentString.substring(contentString.length - 10) : contentString);
+            const chartId = `chart-${index}-${contentHash}`;
+            
+            // Check if this chart's container exists but chart hasn't been rendered
+            const container = chartContainers.current[index];
+            const hasVegaContent = container && (container.querySelector('.vega-embed') || container.querySelector('.marks'));
+            
+            if (container && !hasVegaContent) {
+              console.log(`Chart completion: Container for chart ${index} exists but no chart rendered yet`);
+              
+              // Clear any previous rendered status for this chart to force re-render
+              renderedCharts.current.delete(chartId);
+              
+              // Clear container to ensure fresh rendering
+              if (container) {
+                while (container.firstChild) {
+                  container.removeChild(container.firstChild);
+                }
+              }
+            }
+          });
+          
+          // Create a new ref object to trigger the chart rendering useEffect
+          chartContainers.current = { ...chartContainers.current };
+          
+          // Schedule another check in case not all charts are rendered
+          setTimeout(() => {
+            // Count unrendered charts
+            let unrenderedCount = 0;
+            vegaBlocks.forEach((_, index) => {
+              const container = chartContainers.current[index];
+              const hasVegaContent = container && (container.querySelector('.vega-embed') || container.querySelector('.marks'));
+              if (container && !hasVegaContent) {
+                unrenderedCount++;
+              }
+            });
+            
+            if (unrenderedCount > 0) {
+              console.log(`Still have ${unrenderedCount} unrendered charts, triggering another render cycle`);
+              // Force one more refresh cycle
+              chartContainers.current = { ...chartContainers.current };
+            }
+          }, 1500);
+        }
+      }, 1000); // Wait 1 second after blocks update to consider message "complete"
+      
+      return () => clearTimeout(timer);
+    }
+  }, [blocks, messageComplete]);
+
+  // Reset messageComplete when blocks change significantly
+  useEffect(() => {
+    setMessageComplete(false);
+  }, [blocks.length]);
+
+  // Second useEffect - find and extract tables from text content
+  useEffect(() => {
+    // Look for text blocks that might contain tables
+    const textBlocks = blocks.filter(block => block.type === 'text');
+    
+    // Process each text block to find potential tables
+    const foundTables = {};
+    
+    textBlocks.forEach((block, blockIndex) => {
+      if (typeof block.content !== 'string') return;
+      
+      // Basic check for markdown table format (contains | and --- patterns)
+      if (block.content.includes('|') && block.content.includes('---')) {
+        // Split by lines to find table sections
+        const lines = block.content.split('\n');
+        let tableStart = -1;
+        
+        // Find table start (a line with | followed by a line with |---)
+        for (let i = 0; i < lines.length - 1; i++) {
+          if (lines[i].includes('|') && lines[i+1].includes('|') && lines[i+1].includes('---')) {
+            tableStart = i;
+            break;
+          }
+        }
+        
+        if (tableStart >= 0) {
+          // Extract table content
+          let tableEnd = tableStart + 1;
+          while (tableEnd < lines.length && lines[tableEnd].includes('|')) {
+            tableEnd++;
+          }
+          
+          // Create a unique key for this table
+          const tableContent = lines.slice(tableStart, tableEnd).join('\n');
+          const tableKey = `table-${blockIndex}-${tableContent.length}`;
+          
+          // Parse the table
+          const parsedTable = parseTable(tableContent);
+          if (parsedTable) {
+            foundTables[tableKey] = parsedTable;
+          }
+        }
+      }
+    });
+    
+    // Update state with found tables
+    setMarkdownTables(foundTables);
+  }, [blocks]);
+
+  const parseTable = (tableText) => {
+    try {
+      // Make sure we're working with a string
+      if (typeof tableText !== 'string') {
+        console.error('Table text is not a string:', tableText);
+        return null;
+      }
+      
+      // Split into lines and remove any empty lines
+      const lines = tableText.split('\n').filter(line => line.trim().length > 0);
+      if (lines.length < 3) {
+        console.error('Table needs at least header, separator, and data row');
+        return null;
+      }
+      
+      // Extract headers from the first row
+      const headerLine = lines[0].trim();
+      if (!headerLine.includes('|')) {
+        console.error('Invalid table format: no column separators in header');
+        return null;
+      }
+      
+      // Check if second row is a separator (common in Markdown tables)
+      const secondLine = lines[1].trim();
+      if (!secondLine.includes('|') || !secondLine.includes('-')) {
+        console.error('Invalid table format: separator row not found');
+        return null;
+      }
+      
+      // Parse headers
+      let headers = headerLine.split('|').map(h => h.trim());
+      // If the table starts or ends with |, remove the empty first/last elements
+      if (headers[0] === '') headers.shift();
+      if (headers[headers.length - 1] === '') headers.pop();
+      
+      // Find where data rows start (usually after the separator row)
+      const dataStartIndex = 2;
+      
+      // Parse data rows
+      const rows = [];
+      for (let i = dataStartIndex; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line.includes('|')) continue;
+        
+        let cells = line.split('|').map(cell => cell.trim());
+        if (cells[0] === '') cells.shift();
+        if (cells[cells.length - 1] === '') cells.pop();
+        
+        // Make sure each row has the same number of cells as headers
+        while (cells.length < headers.length) cells.push('');
+        if (cells.length > headers.length) cells = cells.slice(0, headers.length);
+        
+        rows.push(cells);
+      }
+      
+      return { headers, rows };
+    } catch (error) {
+      console.error('Error parsing table:', error);
+      return null;
+    }
   };
-  
-  // Render function for code blocks
-  const renderCodeBlock = (content, language, index) => {
-    return (
-      <div key={`code-${index}`} className="relative my-4">
-        <pre className="rounded-md bg-gray-50 p-4 overflow-x-auto">
-          <code className={language ? `language-${language}` : ''}>
-            {content}
-          </code>
-        </pre>
-        <button
-          onClick={() => {
-            navigator.clipboard.writeText(content);
-          }}
-          className="absolute top-2 right-2 p-1 rounded-md bg-gray-200 text-gray-700 text-xs hover:bg-gray-300"
-        >
-          Copy
-        </button>
-      </div>
-    );
-  };
-  
-  // Render function for tables (unused but kept for future use)
-  const renderTableBlock = (tableData, index) => {
-    if (!tableData.headers || !tableData.rows) {
-      return <div key={`table-error-${index}`}>Invalid table data</div>;
+
+  const MarkdownTable = ({ children }) => {
+    // Sometimes the entire markdown string is passed, not just the table
+    const tableText = typeof children === 'string' ? children : '';
+    
+    // Unique ID for the table
+    const tableId = `table-${tableText.length}`;
+    
+    // If we already parsed this table, use the cached result
+    if (!parsedTables[tableId] && tableText) {
+      const parsedTable = parseTable(tableText);
+      if (parsedTable) {
+        setParsedTables(prev => ({ ...prev, [tableId]: parsedTable }));
+      } else {
+        console.error('Failed to parse table:', tableText);
+      }
     }
     
+    const table = parsedTables[tableId];
+    if (!table) {
+      // Improved fallback handling - try to salvage what we can from the raw markup
+      try {
+        if (tableText && tableText.includes('|')) {
+          // Very basic fallback - split by lines and render in a pre tag
+          return (
+            <div className="overflow-x-auto my-4 border border-gray-300 rounded p-2">
+              <pre className="whitespace-pre-wrap">{tableText}</pre>
+            </div>
+          );
+        }
+        
+        // If we can't identify table structure, show an error
+        return (
+          <div className="p-3 border border-yellow-300 bg-yellow-50 rounded my-3 text-yellow-700">
+            <p>Failed to parse table format</p>
+            {tableText && <pre className="mt-2 text-xs overflow-auto max-h-24">{tableText.substring(0, 150)}...</pre>}
+          </div>
+        );
+      } catch (e) {
+        console.error('Error in table fallback rendering:', e);
+        return <div className="text-red-500 p-2">Error rendering table content</div>;
+      }
+    }
+    
+    // Regular table rendering when parsing succeeds
     return (
-      <div key={`table-${index}`} className="overflow-x-auto my-4">
-        <table className="min-w-full divide-y divide-gray-200 border">
+      <div className="overflow-x-auto my-4">
+        <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              {tableData.headers.map((header, i) => (
-                <th key={i} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              {table.headers.map((header, i) => (
+                <th 
+                  key={i}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
                   {header}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {tableData.rows.map((row, i) => (
-              <tr key={i} className="hover:bg-gray-50">
-                {row.map((cell, j) => (
-                  <td key={j} className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+            {table.rows.map((row, rowIndex) => (
+              <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                {row.map((cell, cellIndex) => (
+                  <td key={cellIndex} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderText = (content) => {
+    // Function to log graph json for debugging
+    const logGraph = (graphObj) => {
+      console.log('Graph JSON structure:', {
+        hasData: !!graphObj.data,
+        hasEncoding: !!graphObj.encoding,
+        markType: typeof graphObj.mark === 'string' ? graphObj.mark : (graphObj.mark?.type || 'unknown'),
+        config: graphObj.config || 'none'
+      });
+      return graphObj;
+    };
+
+    return (
+      <div className="markdown-content mb-2">
+        <ReactMarkdown 
+          rehypePlugins={[rehypeRaw]} 
+          components={{
+            table: ({ node, ...props }) => {
+              try {
+                // Extract the table content
+                const tableContent = (props.children || [])
+                  .map(child => {
+                    if (typeof child === 'string') return child;
+                    if (child && child.props && Array.isArray(child.props.children)) {
+                      return child.props.children
+                        .map(c => {
+                          if (typeof c === 'string') return c;
+                          if (c && c.props && Array.isArray(c.props.children)) {
+                            return c.props.children.map(cc => 
+                              typeof cc === 'string' ? cc : ''
+                            ).join('');
+                          }
+                          return '';
+                        })
+                        .join('\n');
+                    }
+                    return '';
+                  })
+                  .filter(Boolean)
+                  .join('\n');
+                
+                // Generate a unique ID for the table
+                const tableId = `md-table-${tableContent.length}`;
+                
+                // Parse the table content if we haven't already
+                if (!parsedTables[tableId] && tableContent) {
+                  const parsed = parseTable(tableContent);
+                  if (parsed) {
+                    // Update state in a non-blocking way
+                    setTimeout(() => {
+                      setParsedTables(prev => ({
+                        ...prev,
+                        [tableId]: parsed
+                      }));
+                    }, 0);
+                  }
+                }
+                
+                // If we already have the parsed table, render it
+                if (parsedTables[tableId]) {
+                  return (
+                    <div className="overflow-x-auto my-4">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            {parsedTables[tableId].headers.map((header, i) => (
+                              <th 
+                                key={i}
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                              >
+                                {header}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {parsedTables[tableId].rows.map((row, rowIndex) => (
+                            <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                              {row.map((cell, cellIndex) => (
+                                <td key={cellIndex} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
+                
+                // Fall back to original table if parsing failed
+                return <MarkdownTable>{tableContent}</MarkdownTable>;
+              } catch (error) {
+                console.error('Error rendering table:', error);
+                return <div className="text-red-500 p-2 border rounded">Error rendering table</div>;
+              }
+            },
+            code: ({ node, inline, className, children, ...props }) => {
+              const match = /language-(\w+)/.exec(className || '');
+              return !inline && match ? (
+                <SyntaxHighlighter
+                  style={vscDarkPlus}
+                  language={match[1]}
+                  PreTag="div"
+                  className="rounded"
+                  {...props}
+                >
+                  {String(children).replace(/\n$/, '')}
+                </SyntaxHighlighter>
+              ) : (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              );
+            }
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  };
+
+  const renderCode = (content, language) => (
+    <div className="relative">
+      <CopyButton text={content} />
+      <SyntaxHighlighter
+        language={language || 'javascript'}
+        style={vscDarkPlus}
+        className="rounded"
+      >
+        {content}
+      </SyntaxHighlighter>
+    </div>
+  );
+
+  const renderFileAttachment = (file) => {
+    let icon;
+    switch (file.type?.toLowerCase()) {
+      case 'application/pdf':
+        icon = <FaFilePdf className="text-red-500" />;
+        break;
+      case 'application/vnd.ms-excel':
+      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        icon = <FaFileExcel className="text-green-500" />;
+        break;
+      case 'application/msword':
+      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        icon = <FaFileWord className="text-blue-500" />;
+        break;
+      default:
+        icon = <FaFileAlt className="text-gray-500" />;
+    }
+
+    return (
+      <div key={file.id} className="flex items-center gap-3 p-2 border rounded mb-2">
+        <div className="text-xl">{icon}</div>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium truncate">{file.filename}</p>
+          <p className="text-sm text-gray-500">{file.size ? `${(file.size / 1024).toFixed(1)} KB` : 'Unknown size'}</p>
+        </div>
+        <a 
+          href={`/api/file/download/${file.id}`} 
+          download={file.filename}
+          className="ml-2 p-2 text-blue-600 hover:text-blue-800"
+          title="Download file"
+        >
+          <FaDownload />
+        </a>
+      </div>
+    );
+  };
+
+  const renderTable = (tableContent) => {
+    if (!tableContent) {
+      return <div className="p-3 text-yellow-700">No table content provided</div>;
+    }
+
+    // Generate a unique ID for this table based on content
+    const tableId = `table-${tableContent.length}`;
+    
+    // If we already parsed this table, use the cached result
+    if (!parsedTables[tableId] && tableContent) {
+      const parsedTable = parseTable(tableContent);
+      if (parsedTable) {
+        setParsedTables(prev => ({ ...prev, [tableId]: parsedTable }));
+      } else {
+        console.error('Failed to parse table:', tableContent);
+      }
+    }
+    
+    const table = parsedTables[tableId];
+    if (!table) {
+      // Improved fallback handling - try to salvage what we can from the raw markup
+      try {
+        if (tableContent && tableContent.includes('|')) {
+          // Very basic fallback - split by lines and render in a pre tag
+          return (
+            <div className="overflow-x-auto my-4 border border-gray-300 rounded p-2">
+              <pre className="whitespace-pre-wrap">{tableContent}</pre>
+            </div>
+          );
+        }
+        
+        // If we can't identify table structure, show an error
+        return (
+          <div className="p-3 border border-yellow-300 bg-yellow-50 rounded my-3 text-yellow-700">
+            <p>Failed to parse table format</p>
+            {tableContent && <pre className="mt-2 text-xs overflow-auto max-h-24">{tableContent.substring(0, 150)}...</pre>}
+          </div>
+        );
+      } catch (e) {
+        console.error('Error in table fallback rendering:', e);
+        return <div className="text-red-500 p-2">Error rendering table content</div>;
+      }
+    }
+    
+    // Regular table rendering when parsing succeeds
+    return (
+      <div className="overflow-x-auto my-4">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              {table.headers.map((header, i) => (
+                <th 
+                  key={i}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {table.rows.map((row, rowIndex) => (
+              <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                {row.map((cell, cellIndex) => (
+                  <td key={cellIndex} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {cell}
                   </td>
                 ))}
@@ -564,26 +981,94 @@ const MessageContent = ({ blocks = [] }) => {
   };
   
   return (
-    <div className="message-content">
+    <div className="message-blocks">
       {blocks.map((block, index) => {
-        // Render block based on type
-        if (block.type === 'text' && block.content) {
-          return renderTextBlock(block.content, index);
-        } else if (block.type === 'code' && block.content) {
-          return renderCodeBlock(block.content, block.language, index);
-        } else if (block.type === 'table' && block.content) {
-          return renderTableBlock(block.content, index);
-        } else if (block.type === 'vega-lite') {
-          // For vega-lite blocks, we don't render anything here
-          // The useEffect hook handles rendering for all vega-lite blocks
-          return null;
-        } else {
-          return <div key={`unknown-${index}`} className="error-message">Unsupported block type: {block.type}</div>;
+        switch (block.type) {
+          case 'text':
+            return <div key={index}>{renderText(block.content)}</div>;
+          case 'code':
+            return <div key={index}>{renderCode(block.content, block.language)}</div>;
+          case 'table':
+            return <div key={index}>{renderTable(block.content)}</div>;
+          case 'vega-lite':
+            // Create unique key based on content hash to force re-mount when content truly changes
+            const contentString = typeof block.content === 'string' 
+              ? block.content 
+              : JSON.stringify(block.content);
+            const contentKey = contentString.length + '-' + (contentString.length > 20 
+              ? contentString.substring(0, 10) + contentString.substring(contentString.length - 10) 
+              : contentString);
+            
+            // Determine if this is a chart that needs rendering
+            const chartId = `chart-${index}-${contentKey}`;
+            const isRendered = renderedCharts.current.has(chartId);
+            
+            return (
+              <div key={`chart-${index}-${contentKey}`} className="my-3">
+                <div
+                  ref={el => {
+                    if (el && !chartContainers.current[index]) {
+                      console.log(`Setting up container for chart ${index}`);
+                    }
+                    chartContainers.current[index] = el;
+                  }}
+                  className="chart-container relative border border-gray-200 rounded-lg overflow-hidden"
+                  style={{ minHeight: '250px', width: '100%' }}
+                  data-testid="chart-container"
+                  data-chart-index={index}
+                  data-chart-id={chartId}
+                  data-chart-status={isRendered ? 'rendered' : 'pending'}
+                />
+                {chartErrors[index] && (
+                  <div className="mt-2 p-3 bg-red-50 text-red-700 border border-red-300 rounded text-sm">
+                    {chartErrors[index]}
+                  </div>
+                )}
+                {typeof block.content === 'string' && block.content.length > 0 && (
+                  <div className="text-xs mt-2 text-gray-500">
+                    <div className="flex justify-between">
+                      <span>Chart data: {block.content.length} characters</span>
+                      <button 
+                        className="text-blue-500 hover:text-blue-700 text-xs"
+                        onClick={() => {
+                          try {
+                            // Force re-render this specific chart
+                            const chartKey = `chart-${index}-${contentKey}`;
+                            console.log(`User requested re-render of chart ${chartKey}`);
+                            renderedCharts.current.delete(chartKey);
+                            // Create a shallow copy to trigger re-render
+                            const currentContainer = chartContainers.current[index];
+                            if (currentContainer) {
+                              while (currentContainer.firstChild) {
+                                currentContainer.removeChild(currentContainer.firstChild);
+                              }
+                            }
+                            // Force useEffect to run again
+                            chartContainers.current = { ...chartContainers.current };
+                          } catch (e) {
+                            console.error('Error refreshing chart:', e);
+                          }
+                        }}
+                      >
+                        Refresh Chart
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          default:
+            return null;
         }
       })}
       
-      {/* Container for all Vega-Lite charts */}
-      <div ref={chartContainerRef} className="vega-charts-container"></div>
+      {/* Render downloaded files if present */}
+      {downloadedFiles && downloadedFiles.length > 0 && (
+        <div className="mt-4 border-t pt-3">
+          <p className="font-medium text-gray-700 mb-2">Downloaded Files:</p>
+          {downloadedFiles.map(file => renderFileAttachment(file))}
+        </div>
+      )}
     </div>
   );
 };

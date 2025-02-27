@@ -411,9 +411,93 @@ const getFileMarkdownContent = async (fileId) => {
   }
 };
 
+const createFileFromExternalSource = async (fileData) => {
+  const { 
+    content,
+    fileName, 
+    sourceType,  // 'sec-filings' or 'companies-house'
+    fileType,    // PDF, HTML, etc
+    metadata = {}
+  } = fileData;
+  
+  if (!content || !fileName || !sourceType) {
+    throw new Error('Missing required parameters for external file creation');
+  }
+
+  const fileId = generateUniqueId(fileName);
+  const ext = fileType.toLowerCase() === 'pdf' ? '.pdf' : '.html';
+  const newFilename = `${fileId}${ext}`;
+  const newPath = path.join(UPLOAD_DIR, newFilename);
+
+  // Save file content
+  fs.writeFileSync(newPath, content);
+  
+  // Extract text content for markdown
+  let markdownContent = '';
+  if (fileType.toLowerCase() === 'pdf') {
+    try {
+      const dataBuffer = Buffer.from(content);
+      const pdfData = await pdf(dataBuffer);
+      markdownContent = pdfData.text;
+    } catch (err) {
+      console.error('Error extracting text from PDF:', err);
+      markdownContent = 'Unable to extract text from PDF.';
+    }
+  } else {
+    // For HTML, remove tags to get plain text
+    markdownContent = content.replace(/<[^>]*>/g, ' ').trim();
+  }
+
+  // Create the display type based on source
+  let displayType = '';
+  if (sourceType === 'sec-filings') {
+    displayType = metadata.filing_type ? `SEC ${metadata.filing_type} Filing` : 'SEC Filing';
+  } else if (sourceType === 'companies-house') {
+    displayType = metadata.filing_type ? `Companies House ${metadata.filing_type}` : 'Companies House Filing';
+  } else {
+    displayType = 'External Document';
+  }
+
+  // Add metadata to markdown content
+  const markdownWithMetadata = `---
+Type: ${displayType}
+Original Name: ${fileName}
+Source: ${sourceType}
+Upload Date: ${new Date().toISOString()}
+${metadata.company ? `Company: ${metadata.company}` : ''}
+${metadata.filing_date ? `Filing Date: ${metadata.filing_date}` : ''}
+${metadata.filing_type ? `Filing Type: ${metadata.filing_type}` : ''}
+${metadata.description ? `Description: ${metadata.description}` : ''}
+---
+
+${markdownContent}`;
+
+  const markdownPath = path.join(MARKDOWN_DIR, `${fileId}.md`);
+  fs.writeFileSync(markdownPath, markdownWithMetadata);
+
+  // Get file stats
+  const stats = fs.statSync(newPath);
+
+  // Return file metadata
+  return {
+    id: fileId,
+    originalName: fileName,
+    filename: fileName,
+    path: newPath,
+    markdownPath,
+    size: stats.size,
+    type: displayType,
+    uploadDate: new Date(),
+    mimeType: fileType.toLowerCase() === 'pdf' ? 'application/pdf' : 'text/html',
+    source: sourceType,
+    sourceMetadata: metadata
+  };
+};
+
 module.exports = {
   processUploadedFile,
   listFiles,
   deleteFile,
+  createFileFromExternalSource,
   getFileMarkdownContent
 }; 
