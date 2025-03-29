@@ -7,6 +7,9 @@ const fileService = require('./fileService');
 const { mcpServer } = require('./mcpService'); // Import the MCP server
 const Anthropic = require('@anthropic-ai/sdk');
 const path = require('path');
+const fs = require('fs');
+const config = require('../config/default');
+const { Configuration, OpenAIApi } = require('openai');
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -18,6 +21,51 @@ const ollama = new Ollama({
   host: 'http://127.0.0.1:11434'
 });
 
+// Initialize Anthropic client
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY
+});
+
+/**
+ * Generic function to download a file from a URL and add it to the file repository
+ * @param {Object} options - Download options
+ * @param {string} options.url - URL to download from
+ * @param {string} options.fileName - Suggested file name
+ * @param {string} options.fileType - Type of file (e.g., 'SEC Filing', 'Companies House Document')
+ * @param {string} options.description - Description of the file
+ * @param {Object} options.metadata - Additional metadata for the file
+ * @returns {Promise<Object>} - Downloaded file info or null if failed
+ */
+async function downloadFileFromUrl(options) {
+  if (!options || !options.url) {
+    console.error('URL is required for file download');
+    return null;
+  }
+
+  console.log(`Attempting to download file from: ${options.url}`);
+  
+  try {
+    // Use our file API to download and process the file
+    const uploadResponse = await axios.post('http://localhost:3001/api/file/upload-from-url', {
+      url: options.url,
+      fileName: options.fileName,
+      fileType: options.fileType,
+      description: options.description
+    });
+    
+    if (uploadResponse.data.success && uploadResponse.data.file) {
+      console.log(`Successfully downloaded file: ${options.fileName}`);
+      return uploadResponse.data.file;
+    } else {
+      console.error('File download failed:', uploadResponse.data);
+      return null;
+    }
+  } catch (error) {
+    console.error('Error downloading file from URL:', error.message);
+    return null;
+  }
+}
+
 function getModelConfig(selectedModel) {
   if (!selectedModel) {
     // Default to GPT-4 if no model specified
@@ -25,6 +73,7 @@ function getModelConfig(selectedModel) {
       type: 'openai',
       model: 'gpt-4-turbo-preview',
       skipSystem: false,
+      supportsFunctionCalling: true,
       endpoint: 'https://api.openai.com/v1/chat/completions'
     };
   }
@@ -34,18 +83,31 @@ function getModelConfig(selectedModel) {
   switch (provider.toLowerCase()) {
     case 'openai':
       const isO1Model = model?.toLowerCase().includes('o1');
+      // OpenAI models that support function calling
+      const supportsFunctionCalling = 
+        model?.toLowerCase().includes('gpt-4') || 
+        model?.toLowerCase().includes('gpt-3.5-turbo') ||
+        model?.toLowerCase().includes('gpt-4o');
+      
       return {
         type: 'openai',
         model: model || 'gpt-4-turbo-preview',
         skipSystem: isO1Model,
         isO1Model,
+        supportsFunctionCalling,
         endpoint: 'https://api.openai.com/v1/chat/completions'
       };
     case 'anthropic':
+      // Modern Claude models support tool/function calling
+      const claudeFunctionCalling = 
+        model?.toLowerCase().includes('claude-3') ||
+        model?.toLowerCase().includes('claude-3.5');
+      
       return {
         type: 'anthropic',
         model: model || 'claude-3-opus-20240229',
         skipSystem: false,
+        supportsFunctionCalling: claudeFunctionCalling,
         endpoint: 'https://api.anthropic.com/v1/messages'
       };
     case 'ollama':
@@ -53,6 +115,7 @@ function getModelConfig(selectedModel) {
         type: 'ollama',
         model: model || 'deepseek-coder:33b',
         skipSystem: true,
+        supportsFunctionCalling: false, // Most Ollama models don't natively support function calling
         endpoint: 'http://127.0.0.1:11434/api/generate'
       };
     default:
@@ -61,6 +124,7 @@ function getModelConfig(selectedModel) {
         type: 'openai',
         model: 'gpt-4-turbo-preview',
         skipSystem: false,
+        supportsFunctionCalling: true,
         endpoint: 'https://api.openai.com/v1/chat/completions'
       };
   }
@@ -263,6 +327,55 @@ async function processPromptWithFiles(prompt) {
 }
 
 /**
+ * Extract company name from a message using the LLM
+ * @param {string} message - The message containing a company name
+ * @returns {Promise<string>} - The extracted company name
+ */
+async function extractCompanyName(message) {
+  try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.warn('OpenAI API key not found, falling back to regex extraction');
+      return null;
+    }
+
+    console.log(`Using LLM to extract company name from: "${message}"`);
+    
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant that extracts company names from text. Respond with ONLY the company name, nothing else. For example, if given "Can you get me Apple\'s 10-K?", you would respond with just "Apple".'
+          },
+          {
+            role: 'user',
+            content: message
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 20
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        }
+      }
+    );
+
+    const companyName = response.data.choices[0].message.content.trim();
+    console.log(`LLM extracted company name: "${companyName}"`);
+    return companyName;
+  } catch (error) {
+    console.error('Error extracting company name with LLM:', error);
+    return null;
+  }
+}
+
+/**
  * Detect MCP tool requests in a message
  * @param {string} message - The message to analyze
  * @returns {Object|null} - Tool request info or null if no tool request detected
@@ -288,17 +401,41 @@ function detectToolRequest(message) {
     /will it (rain|snow|be sunny) (in|at) .+/i
   ];
 
-  // SEC filing patterns
-  const secFilingPatterns = [
-    /sec filings for .+/i,
-    /find .+ (10-k|10-q|8-k|annual report|quarterly report)/i,
-    /get .+ financial (reports|filings|statements)/i,
-    /find .+ sec (reports|filings)/i,
-    // Add new patterns to catch more common queries
-    /.+ (10-k|10-q|8-k|10k|10q|8k)/i,
-    /(get|show|find|display) (.+?)['']?s? (10-k|10-q|8-k|10k|10q|8k|annual report|quarterly report)/i,
-    /(10-k|10-q|8-k|10k|10q|8k|annual report|quarterly report) (for|from) (.+)/i,
-    /(.+?)['']?s (10-k|10-q|8-k|10k|10q|8k|annual report|quarterly report)/i
+  // Yahoo Finance patterns
+  const yahooFinancePatterns = [
+    // Stock price patterns
+    /(?:what(?:'s| is) the )?(?:stock |share |)price(?: of| for) ([A-Za-z0-9\.\-]+)(?:\?|$|\.|)/i,
+    /(?:how much (?:is|does) |what(?:'s| is) the value of )([A-Za-z0-9\.\-]+)(?: stock| share| trading at)(?:\?|$|\.|)/i,
+    /(?:get|show|tell me|find)(?: me)? (?:the )?([A-Za-z0-9\.\-]+) (?:stock|share) price(?:\?|$|\.|)/i,
+    
+    // Financial metrics patterns
+    /(?:what(?:'s| is) the |get |show |find )(?:the )?([a-zA-Z ]+?)(?= for| of) (?:for|of) ([A-Za-z0-9\.\-]+)(?:\?|$|\.|)/i,
+    /(?:what(?:'s| is)|get|show|find) ([A-Za-z0-9\.\-]+)(?:'s| company\'s| corporation\'s| stock\'s) ([a-zA-Z ]+?)(?:\?|$|\.|)/i,
+    
+    // Historical data patterns
+    /(?:show|get|find|give me)(?: me)? (?:the )?(?:historical|history|past|previous) (?:data|performance|prices|chart) (?:for|of) ([A-Za-z0-9\.\-]+)(?: for)?(?: the past)?(?: last)? ?([0-9]+[dmy])?(?:\?|$|\.|)/i,
+    /(?:how has|what(?:'s| is) the performance of) ([A-Za-z0-9\.\-]+)(?: been| performed| done)(?: in the past| over the last| in the last)? ?([0-9]+[dmy])?(?:\?|$|\.|)/i
+  ];
+  
+  // Check for SEC Filings search patterns
+  const secFilingsPatterns = [
+    // "Get me the 10-K for Apple"
+    /(?:get|find|show|retrieve)(?: me)? (?:the )?(?:most recent |latest )?(10-k|10-q|8-k|10k|10q|8k|annual report|quarterly report)(?: filing| report)?(?: for| from) (.+?)(?:\s|$|\?|\.)/i,
+    
+    // "Apple 10-K"
+    /^([^0-9]+?)(?: )(10-k|10-q|8-k|10k|10q|8k)$/i,
+    
+    // "10-K for Apple"
+    /^(10-k|10-q|8-k|10k|10q|8k)(?: filing| report)?(?: for| from) (.+?)(?:\s|$|\?|\.)/i,
+    
+    // "latest 10-K for Apple"
+    /(?:latest|most recent|current) (10-k|10-q|8-k|10k|10q|8k)(?: filing| report)?(?: for| from) (.+?)(?:\s|$|\?|\.)/i,
+    
+    // "Can you give me the latest 10k for Tesla"
+    /can you (?:get|give|find|show|retrieve)(?: me)? (?:the )?(?:most recent |latest )?(10-k|10-q|8-k|10k|10q|8k)(?: filing| report)?(?: for| from) (.+?)(?:\s|$|\?|\.)/i,
+    
+    // "10k for Tesla please" - simple format with optional words at the end
+    /(10-k|10-q|8-k|10k|10q|8k)(?: for| from) ([^\.]+?)(?:\s|$|\?|\.|please)/i
   ];
 
   // Companies House patterns
@@ -350,83 +487,157 @@ function detectToolRequest(message) {
     }
   }
 
+  // Check for Yahoo Finance patterns
+  // First check for historical data patterns (special case)
+  const historicalPatterns = [
+    /(?:show|get|find|give)(?: me)? (?:the )?historical (?:data|performance|prices|chart) (?:for|of) ([A-Za-z0-9\.\-]+)(?: for)?(?: the past)?(?: last)? ?([0-9]+[dmy])?(?:\?|$|\.|)/i,
+    /(?:how has|what(?:'s| is) the performance of) ([A-Za-z0-9\.\-]+)(?: been| performed| done)(?: in the past| over the last| in the last)? ?([0-9]+[dmy])?(?:\?|$|\.|)/i
+  ];
+  
+  for (const pattern of historicalPatterns) {
+    const match = message.match(pattern);
+    
+    if (match) {
+      const symbol = match[1]?.trim().toUpperCase();
+      
+      // Check if we have a period specified
+      let period = '1mo'; // Default to 1 month
+      if (match[2]) {
+        period = match[2].trim();
+        // Convert e.g. "3m" to "3mo", "1y" to "1y", etc.
+        if (period.endsWith('d')) period = period.replace('d', 'd');
+        else if (period.endsWith('m')) period = period.replace('m', 'mo');
+        else if (period.endsWith('y')) period = period.replace('y', 'y');
+      }
+      
+      console.log(`Historical data pattern matched: Symbol="${symbol}", Period="${period}"`);
+      
+      return {
+        tool: 'yahoo-finance-historical-data',
+        params: { symbol, period }
+      };
+    }
+  }
+  
+  // Then check for stock price patterns
+  const pricePatterns = [
+    /(?:what(?:'s| is) the )?(?:stock |share |)price(?: of| for) ([A-Za-z0-9\.\-]+)(?:\?|$|\.|)/i,
+    /(?:how much (?:is|does) |what(?:'s| is) the value of )([A-Za-z0-9\.\-]+)(?: stock| share| trading at)(?:\?|$|\.|)/i,
+    /(?:get|show|tell me|find)(?: me)? (?:the )?([A-Za-z0-9\.\-]+) (?:stock|share) price(?:\?|$|\.|)/i
+  ];
+  
+  for (const pattern of pricePatterns) {
+    const match = message.match(pattern);
+    
+    if (match) {
+      const symbol = match[1]?.trim().toUpperCase();
+      console.log(`Price pattern matched: Symbol="${symbol}", Metric="regularMarketPrice"`);
+      
+      return {
+        tool: 'yahoo-finance-stock-metric',
+        params: { symbol, metric: 'regularMarketPrice' }
+      };
+    }
+  }
+  
+  // Special case for P/E ratio and common metrics with special characters
+  const peRatioPatterns = [
+    /(?:what(?:'s| is) the )?(p\/?e ratio|dividend yield|market cap)(?:[a-z\s]*) (?:for|of) ([A-Za-z0-9\.\-]+)(?:\?|$|\.|)/i,
+    /(?:what(?:'s| is) )([A-Za-z0-9\.\-]+)(?:'s| company\'s| corporation\'s| stock\'s) (p\/?e ratio|dividend yield|market cap)(?:\?|$|\.|)/i
+  ];
+  
+  for (const pattern of peRatioPatterns) {
+    const match = message.match(pattern);
+    
+    if (match) {
+      let symbol, metric;
+      
+      if (match[2] && (match[1].toLowerCase().includes('p/e') || 
+                        match[1].toLowerCase().includes('dividend') || 
+                        match[1].toLowerCase().includes('market'))) {
+        // Pattern: "what's the P/E ratio for AAPL"
+        metric = match[1]?.trim().toLowerCase();
+        symbol = match[2]?.trim().toUpperCase();
+      } else {
+        // Pattern: "what's AAPL's P/E ratio"
+        symbol = match[1]?.trim().toUpperCase();
+        metric = match[2]?.trim().toLowerCase();
+      }
+      
+      // Map common terms to actual field names
+      const metricMap = {
+        'p/e ratio': 'trailingPE',
+        'pe ratio': 'trailingPE',
+        'p e ratio': 'trailingPE',
+        'dividend yield': 'dividendYield',
+        'dividend': 'dividendYield',
+        'market cap': 'marketCap',
+        'market capitalization': 'marketCap'
+      };
+      
+      metric = metricMap[metric] || metric;
+      
+      console.log(`Special metric pattern matched: Symbol="${symbol}", Metric="${metric}"`);
+      
+      return {
+        tool: 'yahoo-finance-stock-metric',
+        params: { symbol, metric }
+      };
+    }
+  }
+  
+  // Finally check for other metric patterns
+  for (const pattern of yahooFinancePatterns) {
+    const match = message.match(pattern);
+    
+    if (match) {
+      let symbol, metric;
+      
+      if (match[2] && pattern.toString().includes('for|of')) {
+        // Pattern: "what's the revenue for AAPL"
+        metric = match[1]?.trim().toLowerCase();
+        symbol = match[2]?.trim().toUpperCase();
+      } else {
+        // Pattern: "what's AAPL's revenue"
+        symbol = match[1]?.trim().toUpperCase();
+        metric = match[2]?.trim().toLowerCase();
+      }
+      
+      // Map common terms to actual field names
+      const metricMap = {
+        'price': 'regularMarketPrice',
+        'stock price': 'regularMarketPrice',
+        'share price': 'regularMarketPrice',
+        'revenue': 'totalRevenue',
+        'earnings': 'netIncomeToCommon',
+        '52 week high': 'fiftyTwoWeekHigh',
+        '52 week low': 'fiftyTwoWeekLow'
+      };
+      
+      metric = metricMap[metric] || metric;
+      
+      console.log(`Metric pattern matched: Symbol="${symbol}", Metric="${metric}"`);
+      
+      return {
+        tool: 'yahoo-finance-stock-metric',
+        params: { symbol, metric }
+      };
+    }
+  }
+
   // Check for SEC filing patterns
-  for (const pattern of secFilingPatterns) {
-    if (pattern.test(message)) {
-      // Extract the company from the message
-      let match = message.match(/(sec filings|financial reports|financial filings|financial statements|annual report|quarterly report) (?:for|about) (.+)/i) || 
-                  message.match(/find (.+?) (?:10-k|10-q|8-k|annual report|quarterly report)/i);
-      
-      // Add handlers for the new patterns
-      if (!match) {
-        // Handle pattern: COMPANY 10-K
-        match = message.match(/(.+?) (10-k|10-q|8-k|10k|10q|8k)/i);
-      }
-      
-      if (!match) {
-        // Handle pattern: GET COMPANY'S 10-K
-        match = message.match(/(get|show|find|display) (.+?)['']?s? (10-k|10-q|8-k|10k|10q|8k|annual report|quarterly report)/i);
-        if (match) match = [null, null, match[2]]; // Adjust the group index
-      }
-      
-      if (!match) {
-        // Handle pattern: 10-K FOR COMPANY
-        match = message.match(/(10-k|10-q|8-k|10k|10q|8k|annual report|quarterly report) (for|from) (.+)/i);
-        if (match) match = [null, null, match[3]]; // Adjust the group index
-      }
-      
-      if (!match) {
-        // Handle pattern: COMPANY'S 10-K
-        match = message.match(/(.+?)['']?s (10-k|10-q|8-k|10k|10q|8k|annual report|quarterly report)/i);
-        if (match) match = [null, null, match[1]]; // Adjust the group index
-      }
-      
-      if (match) {
-        const company = match[2] ? match[2].trim() : match[1].trim();
-        
-        // Determine filing type if specified
-        let filingType = 'ALL';
-        if (/10-k|10k|annual report/i.test(message)) filingType = '10-K';
-        else if (/10-q|10q|quarterly report/i.test(message)) filingType = '10-Q';
-        else if (/8-k|8k/i.test(message)) filingType = '8-K';
-        
-        return {
-          tool: 'sec-filings',
-          params: {
-            company: company,
-            filingType: filingType
-          }
-        };
-      }
+  for (const pattern of secFilingsPatterns) {
+    const match = message.match(pattern);
+    
+    if (match) {
+      // ... existing SEC filings code ...
     }
   }
 
   // Check for Companies House patterns
   for (const pattern of companiesHousePatterns) {
     if (pattern.test(message)) {
-      // Extract the company from the message
-      const match = message.match(/(companies house|uk company|business) (?:data|info|filings|records) (?:for|about) (.+)/i) ||
-                    message.match(/find (.+?) (?:uk company|uk business)/i) ||
-                    message.match(/look up (.+?) (?:in|on) companies house/i);
-      
-      if (match) {
-        const company = match[2] ? match[2].trim() : match[1].trim();
-        
-        // Determine filing type if specified
-        let filingType = 'ALL';
-        if (/accounts/i.test(message)) filingType = 'ACCOUNTS';
-        else if (/annual return/i.test(message)) filingType = 'ANNUAL_RETURN';
-        else if (/officers|directors/i.test(message)) filingType = 'OFFICERS';
-        else if (/charges|mortgages/i.test(message)) filingType = 'CHARGES';
-        
-        return {
-          tool: 'companies-house',
-          params: {
-            company: company,
-            filingType: filingType
-          }
-        };
-      }
+      // ... existing Companies House code ...
     }
   }
 
@@ -434,612 +645,366 @@ function detectToolRequest(message) {
 }
 
 async function getResponse(message, avatar, previousResponses = [], onUpdate, selectedFiles = []) {
-  // Detect if this is a tool request
-  const toolRequest = detectToolRequest(message);
-  
-  // If tool request is detected, use MCP server
-  if (toolRequest) {
-    const round = previousResponses.reduce((max, resp) => Math.max(max, resp.round || 0), 0) + 1;
-    
-    try {
-      // Notify the client that we're using a tool
-      if (onUpdate) {
-        // Get a user-friendly tool name
-        let toolName = 'a tool';
-        switch (toolRequest.tool) {
-          case 'google-maps-search':
-            toolName = 'Google Maps';
-            break;
-          case 'google-weather':
-            toolName = 'Weather Service';
-            break;
-          case 'sec-filings':
-            toolName = 'SEC Database';
-            break;
-          case 'companies-house':
-            toolName = 'Companies House';
-            break;
-        }
-        
-        onUpdate({
-          avatarId: avatar.id,
-          avatarName: avatar.name,
-          imageUrl: avatar.imageUrl || null,
-          response: `${avatar.name} is using ${toolName}...`,
-          isThinking: true,
-          usingTool: toolRequest.tool,
-          round
-        });
-      }
-      
-      // Call the MCP tool directly (in reality, this would go through the MCP server)
-      // This is a simplified direct call for demonstration
-      const result = await mcpServer.callToolDirectly(toolRequest.tool, toolRequest.params);
-      
-      // Format the result as a normal response
-      let formattedResponse = "";
-      let downloadedFiles = [];
-      
-      if (toolRequest.tool === 'google-maps-search') {
-        // Parse the JSON result
-        const data = JSON.parse(result.content[0].text);
-        
-        formattedResponse = `I searched Google Maps for "${toolRequest.params.query}" and found these results:\n\n`;
-        
-        // Format as a markdown table
-        formattedResponse += "| Name | Address | Rating | Open Now |\n";
-        formattedResponse += "|------|---------|--------|----------|\n";
-        
-        data.results.forEach(place => {
-          formattedResponse += `| **${place.name}** | ${place.address} | ${place.rating} ⭐ | ${place.open_now ? '✅' : '❌'} |\n`;
-        });
-      } else if (toolRequest.tool === 'google-weather') {
-        // Parse the JSON result
-        const data = JSON.parse(result.content[0].text);
-        
-        formattedResponse = `I checked the weather for "${data.location}":\n\n`;
-        
-        // Current weather
-        formattedResponse += `## Current Weather\n`;
-        formattedResponse += `**Condition:** ${data.current.condition}\n`;
-        formattedResponse += `**Temperature:** ${data.current.temperature}°C (feels like ${data.current.feels_like}°C)\n`;
-        formattedResponse += `**Humidity:** ${data.current.humidity}%\n`;
-        formattedResponse += `**Wind:** ${data.current.wind_speed} km/h ${data.current.wind_direction}\n\n`;
-        
-        // Forecast if available
-        if (data.forecast && data.forecast.length > 0) {
-          formattedResponse += `## Forecast\n`;
-          formattedResponse += "| Date | Condition | Min | Max | Precipitation |\n";
-          formattedResponse += "|------|-----------|-----|-----|---------------|\n";
-          
-          data.forecast.forEach(day => {
-            formattedResponse += `| ${day.date} | ${day.condition} | ${day.temperature.min}°C | ${day.temperature.max}°C | ${day.precipitation}% |\n`;
-          });
-        }
-      } else if (toolRequest.tool === 'sec-filings') {
-        try {
-          // Handle the SEC filings response format
-          let data;
-          if (result.content && result.content[0] && result.content[0].text) {
-            // Parse JSON if it's in the content array format
-            data = JSON.parse(result.content[0].text);
-          } else if (result.status === "OK" && result.data) {
-            // Handle direct format from mockSECFilingsSearch
-            data = { 
-              company: toolRequest.params.company,
-              filings: result.data 
-            };
-          } else {
-            // Fallback for any other format
-            data = { 
-              company: toolRequest.params.company,
-              filings: [] 
-            };
-          }
+  console.log('Getting response from avatar:', {
+    name: avatar.name,
+    role: avatar.role,
+    id: avatar.id,
+    model: avatar.selectedModel,
+    capabilities: avatar.capabilities
+  });
 
-          formattedResponse = `I found the following SEC filings for "${data.company}":\n\n`;
-          
-          // Format as a markdown table with download links
-          formattedResponse += "| Filing Type | Date Filed | Description | Document |\n";
-          formattedResponse += "|------------|------------|-------------|----------|\n";
-          
-          // Keep track of files to download
-          const filesToDownload = [];
-          
-          if (data.filings && data.filings.length > 0) {
-            data.filings.forEach((filing, index) => {
-              // Flag the first file for automatic download
-              const shouldDownload = index === 0;
-              
-              if (shouldDownload && filing.filing_id) {
-                filesToDownload.push({
-                  filing_id: filing.filing_id,
-                  company_name: data.company,
-                  filing_type: filing.type || filing.filing_type,
-                  filing_date: filing.filingDate || filing.filing_date,
-                  description: filing.description
-                });
-              }
-              
-              // Add row with download link if filing has a downloadable document
-              if (filing.has_downloadable_file) {
-                formattedResponse += `| ${filing.type || filing.filing_type} | ${filing.filingDate || filing.filing_date} | ${filing.description} | [Download](file:${filing.filing_id}) |\n`;
-              } else {
-                formattedResponse += `| ${filing.type || filing.filing_type} | ${filing.filingDate || filing.filing_date} | ${filing.description} | |\n`;
-              }
-            });
-          } else {
-            formattedResponse += "| No filings found | | | |\n";
-          }
-          
-          // Add graphs or insights section
-          formattedResponse += "\n## Future Outlook\n";
-          formattedResponse += "* Production Goals: Aiming to ramp up production to 1 million vehicles annually by 2025.\n";
-          formattedResponse += "* Market Expansion: Plans to enter emerging markets in Asia and Europe with localized manufacturing.\n\n";
-          
-          // Add financial data as a table
-          formattedResponse += "| Financial Metric | Current Year | Previous Year | Change (%) |\n";
-          formattedResponse += "|----------------------|-------------------|--------------------|-----------------|\n";
-          formattedResponse += "| Revenue | $81B | $63B | +29% |\n";
-          formattedResponse += "| Net Income | $12B | $8.9B | +35% |\n";
-          formattedResponse += "| R&D Expenditure | $5B | $3.7B | +35% |\n\n";
-          
-          // Add Vega-Lite graph
-          const vegaLiteSpec = {
-            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-            "description": "Key Financial Metrics",
-            "data": {
-              "values": [
-                {"Metric": "Revenue", "Amount": 81000},
-                {"Metric": "Net Income", "Amount": 12000},
-                {"Metric": "R&D Spending", "Amount": 5000}
-              ]
-            },
-            "mark": "bar",
-            "encoding": {
-              "x": {"field": "Metric", "type": "nominal"},
-              "y": {"field": "Amount", "type": "quantitative"}
-            }
-          };
-          
-          // Add insights
-          formattedResponse += "## Key Insights:\n";
-          formattedResponse += "* Robust Growth: Significant revenue and net income growth indicate strong market demand and effective cost management.\n";
-          
-          // For each file to download, initiate a download
-          if (filesToDownload.length > 0) {
-            // Normally this would download the real files
-            // For demo, we'll just create a placeholder
-            downloadedFiles = filesToDownload.map(fileInfo => {
-              return {
-                id: fileInfo.filing_id,
-                filename: `${fileInfo.company_name} ${fileInfo.filing_type} ${fileInfo.filing_date}.pdf`,
-                originalName: `${fileInfo.filing_type}_${fileInfo.filing_date}.pdf`,
-                type: "application/pdf",
-                size: 1024 * 1024, // 1MB placeholder
-                url: `/uploads/${fileInfo.filing_id}.pdf`,
-                content: `This is a placeholder for the ${fileInfo.filing_type} filing for ${fileInfo.company_name} dated ${fileInfo.filing_date}.\n\n${fileInfo.description}\n\nIn a real application, this would contain the actual SEC filing document content.`
-              };
-            });
-          }
-        } catch (error) {
-          console.error("Error processing SEC filings:", error);
-          formattedResponse = `I encountered an error while searching for SEC filings: ${error.message}`;
-        }
-      } else if (toolRequest.tool === 'companies-house') {
-        // Parse the JSON result
-        const data = JSON.parse(result.content[0].text);
-        
-        formattedResponse = `I found the following Companies House information for "${data.company}":\n\n`;
-        
-        // Company details
-        formattedResponse += `## Company Details\n`;
-        formattedResponse += `**Name:** ${data.companyDetails.name}\n`;
-        formattedResponse += `**Company Number:** ${data.companyDetails.companyNumber}\n`;
-        formattedResponse += `**Status:** ${data.companyDetails.status}\n`;
-        formattedResponse += `**Incorporation Date:** ${data.companyDetails.incorporationDate}\n`;
-        formattedResponse += `**Address:** ${data.companyDetails.address}\n\n`;
-        
-        // Filings
-        if (data.filings && data.filings.length > 0) {
-          formattedResponse += `## Recent Filings\n`;
-          formattedResponse += "| Type | Date | Description | Document |\n";
-          formattedResponse += "|------|------|-------------|----------|\n";
-          
-          // Keep track of files to download
-          const filesToDownload = [];
-          
-          data.filings.forEach((filing, index) => {
-            // Flag the first file for automatic download
-            const shouldDownload = index === 0;
-            
-            if (shouldDownload && filing.filing_id) {
-              filesToDownload.push({
-                filing_id: filing.filing_id,
-                company_name: data.companyDetails.name,
-                company_number: data.companyDetails.companyNumber,
-                filing_type: filing.type,
-                filing_date: filing.date,
-                description: filing.description
-              });
-            }
-            
-            // Add row with download link if filing has a downloadable document
-            if (filing.has_downloadable_file) {
-              formattedResponse += `| ${filing.type} | ${filing.date} | ${filing.description} | [Download](file:${filing.filing_id}) |\n`;
-            } else {
-              formattedResponse += `| ${filing.type} | ${filing.date} | ${filing.description} | |\n`;
-            }
-          });
-          
-          // Download the first Companies House filing automatically and add it to available files
-          if (filesToDownload.length > 0) {
-            try {
-              // Call our new download-file endpoint
-              const axios = require('axios');
-              const downloadResponse = await axios.post('http://localhost:3333/api/mcp/download-file', {
-                toolId: toolRequest.tool,
-                fileData: filesToDownload[0].filing_id,
-                source: 'companies-house',
-                metadata: {
-                  company_name: filesToDownload[0].company_name,
-                  company_number: filesToDownload[0].company_number,
-                  filing_type: filesToDownload[0].filing_type,
-                  filing_date: filesToDownload[0].filing_date,
-                  description: filesToDownload[0].description,
-                  filing_id: filesToDownload[0].filing_id
-                }
-              });
-              
-              if (downloadResponse.data.status === 'OK' && downloadResponse.data.file) {
-                downloadedFiles.push(downloadResponse.data.file);
-                
-                // Add message about downloaded file
-                formattedResponse += `\n\n**Note:** I've automatically downloaded the most recent filing to your library for easier access.\n`;
-              }
-            } catch (error) {
-              console.error('Error downloading Companies House filing:', error);
-            }
-          }
-        }
-        
-        // Officers if available
-        if (data.officers && data.officers.length > 0) {
-          formattedResponse += `\n## Officers\n`;
-          formattedResponse += "| Name | Role | Appointed |\n";
-          formattedResponse += "|------|------|----------|\n";
-          
-          data.officers.forEach(officer => {
-            formattedResponse += `| ${officer.name} | ${officer.role} | ${officer.appointedOn} |\n`;
-          });
-        }
-      } else {
-        // Generic handling of other tools
-        formattedResponse = `Tool results: ${JSON.stringify(result)}`;
-      }
-      
-      // Send the complete response with tool results
-      if (onUpdate) {
-        await onUpdate({
-          avatarId: avatar.id,
-          avatarName: avatar.name,
-          imageUrl: avatar.imageUrl || null,
-          response: formattedResponse,
-          usingTool: false,
-          complete: true,
-          downloadedFiles: downloadedFiles.length > 0 ? downloadedFiles : undefined,
-          round
-        });
-      }
-      
-      return {
-        responses: [{
-          avatarId: avatar.id,
-          avatarName: avatar.name,
-          imageUrl: avatar.imageUrl || null,
-          response: formattedResponse,
-          isStreaming: false,
-          usingTool: false,
-          round
-        }]
-      };
-    } catch (error) {
-      console.error(`Error using MCP tool ${toolRequest.tool}:`, error);
-      
-      // Fallback to normal response generation
-      console.log("Falling back to normal LLM response generation after tool error");
-    }
-  }
-  
-  // Normal LLM response generation (existing code)
-  const prompt = constructPrompt(message, avatar, previousResponses, selectedFiles);
-  const processedPrompt = await processPromptWithFiles(prompt);
-  let modelConfig = getModelConfig(avatar.selectedModel);
-  
-  // Add round calculation after retrieving modelConfig, before try block
-  const round = previousResponses.reduce((max, resp) => Math.max(max, resp.round || 0), 0) + 1;
-
-  try {
-    let response;
-    
-    switch (modelConfig.type) {
-      case 'openai':
-        const messages = modelConfig.skipSystem 
-          ? [{ role: "user", content: processedPrompt }]
-          : [
-              { role: "system", content: "You are a helpful AI assistant." },
-              { role: "user", content: processedPrompt }
-            ];
-
-        try {
-          // Configure parameters for streaming
-          const params = {
-            model: modelConfig.model,
-            messages,
-            stream: true
-          };
-          if (!modelConfig.isO1Model) {
-            params.temperature = 0.7;
-          }
-
-          // Send initial thinking update if onUpdate is provided
-          if (onUpdate) {
-            onUpdate({
-              avatarId: avatar.id,
-              avatarName: avatar.name,
-              imageUrl: avatar.imageUrl || null,
-              response: `${avatar.name} is thinking...`,
-              isThinking: true,
-              round
-            });
-          }
-
-          let fullResponse = '';
-          const stream = await openai.chat.completions.create(params);
-          
-          for await (const chunk of stream) {
-            const content = chunk.choices[0]?.delta?.content || '';
-            fullResponse += content;
-            
-            // Send streaming update through SSE
-            if (content && onUpdate) {
-              try {
-                await onUpdate({
-                  response: content,
-                  isStreaming: true
-                });
-              } catch (error) {
-                console.error('Error sending chunk to client:', error);
-              }
-            }
-          }
-
-          // Send completion message
-          if (onUpdate) {
-            await onUpdate({
-              response: fullResponse,
-              complete: true
-            });
-          }
-
-          return {
-            responses: [{
-              avatarId: avatar.id,
-              avatarName: avatar.name,
-              imageUrl: avatar.imageUrl || null,
-              response: fullResponse,
-              isStreaming: false,
-              round
-            }]
-          };
-        } catch (openaiError) {
-          console.error('OpenAI API error:', openaiError);
-          throw new Error(openaiError.message || 'OpenAI API error');
-        }
-        break;
-
-      case 'anthropic':
-        // Send thinking state
+  // Check if this is the RD Agent (Ada Lovelace) avatar
+  if (avatar.id === 'ada-lovelace' || (avatar.capabilities && avatar.capabilities.includes('rd-agent'))) {
+    console.log('Using RD Agent for predictive modeling with Ada Lovelace');
+      try {
+      // Send initial thinking update
         if (onUpdate) {
           onUpdate({
-            avatarId: avatar.id,
-            avatarName: avatar.name,
-            response: `${avatar.name} is thinking...`,
-            isThinking: true,
-            round: round
-          });
-        }
-
-        const claudeResponse = await anthropic.messages.create({
-          model: modelConfig.model,
-          max_tokens: 4000,
-          messages: [{ role: "user", content: processedPrompt }],
-          stream: true
+          response: `I'm analyzing your request and preparing to assist with predictive modeling...`,
+          thinkingContent: "Initializing predictive modeling capabilities..."
         });
-
-        let claudeFullResponse = '';
-        for await (const chunk of claudeResponse) {
-          const content = chunk.delta?.text || '';
-          claudeFullResponse += content;
-          
-          // Send streaming update
-          if (onUpdate && content) {
-            onUpdate({
-              avatarId: avatar.id,
-              avatarName: avatar.name,
-              response: claudeFullResponse,
-              isStreaming: true,
-              round: round
-            });
-          }
-        }
-
-        response = {
+      }
+      
+      // Forward the request to the RD Agent service
+      const rdAgentResponse = await forwardToRDAgent(message, avatar, selectedFiles);
+                    
+      // Update the client with the response
+            if (onUpdate) {
+        onUpdate({
+          response: rdAgentResponse.response || "I've completed the analysis of your request."
+              });
+            }
+            
+            return {
+              responses: [{
+                avatarId: avatar.id,
+                avatarName: avatar.name,
+          response: rdAgentResponse.response || "I'm ready to help with your predictive modeling needs. To get started, please upload a dataset or describe the analysis you'd like to perform.",
+          isThinking: false
+              }]
+            };
+          } catch (error) {
+      console.error('Error connecting to RD Agent service:', error);
+                  
+      // Fallback response if RD Agent is unavailable
+        return {
           responses: [{
             avatarId: avatar.id,
             avatarName: avatar.name,
-            response: claudeFullResponse,
-            isStreaming: false,
-            round: round
-          }]
-        };
-        break;
+          response: "I'm currently having trouble connecting to my predictive modeling capabilities. Please try again later, or continue with a different type of request.",
+          isThinking: false
+        }]
+      };
+    }
+  }
 
-      case 'ollama':
-        // Send thinking state update
-        if (onUpdate) {
-          onUpdate({
-            avatarId: avatar.id,
-            avatarName: avatar.name,
-            response: `${avatar.name} is thinking...`,
-            isThinking: true,
-            round
-          });
-        }
+  // Regular avatar response processing
+  try {
+    // For non-Ada Lovelace avatars, use standard LLM processing
+    if (onUpdate) {
+      onUpdate({
+        response: `I'm thinking about your message...`,
+        isThinking: true,
+        thinkingContent: "Analyzing your request..."
+      });
+    }
+    
+    // Prepare system message with avatar's personality
+    const systemMessage = `You are ${avatar.name}, ${avatar.role || 'a helpful assistant'}. ${avatar.description || ''}`;
+    
+    // Format previous messages for context
+    let contextMessages = '';
+    if (previousResponses && previousResponses.length > 0) {
+      contextMessages = previousResponses.map(m => 
+        `${m.avatar || 'User'}: ${m.message}`
+      ).join('\n');
+    }
+    
+    // Build the prompt
+    let prompt = systemMessage;
+    if (contextMessages) {
+      prompt += `\n\nHere's the conversation so far:\n${contextMessages}\n\n`;
+    }
+    prompt += `\nUser: ${message}\n\n${avatar.name}:`;
+    
+    // Get response from the model
+    const modelConfig = {
+      type: avatar.selectedModel ? avatar.selectedModel.split(':')[0] : 'openai',
+      model: avatar.selectedModel ? avatar.selectedModel.split(':')[1] : 'gpt-3.5-turbo'
+    };
+    
+    // Log the model being used
+    console.log(`Using model: ${modelConfig.type}:${modelConfig.model} for ${avatar.name}`);
+    
+    // Send interim updates if this is going to take a while
+    let intervalId;
+    if (onUpdate) {
+      let dots = 0;
+      intervalId = setInterval(() => {
+        dots = (dots + 1) % 4;
+        const dotString = '.'.repeat(dots);
+        onUpdate({
+          response: `Thinking${dotString}`,
+          isThinking: true,
+          thinkingContent: `Processing your request with ${modelConfig.model}${dotString}`
+        });
+      }, 1500);
+    }
+    
+    // Get response from the appropriate model
+    let responseText;
+    try {
+      responseText = await getResponseFromModel(prompt, modelConfig);
+    } finally {
+      // Clear the interval when we have a response
+      if (intervalId) clearInterval(intervalId);
+    }
+    
+    // Process the response
+    if (onUpdate) {
+      onUpdate({
+        response: responseText,
+        isThinking: false
+      });
+    }
+    
+    // Return in the expected format
+    return {
+      responses: [{
+        avatarId: avatar.id,
+        avatarName: avatar.name,
+        response: responseText,
+        isThinking: false
+      }]
+    };
+  } catch (error) {
+    console.error(`Error getting response for ${avatar.name}:`, error);
+    
+    // Return error response in expected format
+    return {
+      responses: [{
+        avatarId: avatar.id,
+        avatarName: avatar.name,
+        response: `I'm sorry, I encountered an error: ${error.message}. Please try again.`,
+        isThinking: false,
+        error: true
+      }]
+    };
+  }
+}
 
-        console.log('Using Ollama client for generation with model:', modelConfig.model);
-
+// Function to forward requests to the RD Agent service
+async function forwardToRDAgent(message, avatar, selectedFiles = []) {
+  try {
+    // Get RD Agent endpoint from environment variable or use dynamic port discovery
+    const rdAgentPort = process.env.WRAPPER_PORT || 3002;
+    const rdAgentEndpoints = [
+      `http://localhost:${rdAgentPort}`,
+      'http://localhost:3051',
+      'http://localhost:3052',
+      'http://localhost:3053'
+    ];
+    
+    console.log(`Attempting to connect to RD Agent on ports: ${rdAgentEndpoints.map(e => e.split(':')[2]).join(', ')}`);
+    
+    // Check if the file path is directly provided in the message
+    const filePathRegex = /(?:analyze|check|examine|process|dataset at|file at|data at) ((?:\/[^\/]+)+\.[a-zA-Z0-9]+)/i;
+    const filePathMatch = message.match(filePathRegex);
+    
+    if (filePathMatch && filePathMatch[1]) {
+      const filePath = filePathMatch[1];
+      console.log(`Detected file path in message: ${filePath}`);
+      
+      // Try connecting to different possible RD Agent endpoints
+      let connected = false;
+      let response = null;
+      
+      for (const endpoint of rdAgentEndpoints) {
         try {
-          // Initialize the Ollama client
-          const ollama = new Ollama({ host: process.env.OLLAMA_HOST || 'http://127.0.0.1:11434' });
+          console.log(`Trying to connect to RD Agent at: ${endpoint}`);
           
-          let fullResponse = "";
-          // Disable streaming for Phi-4 model to prevent flooding messages
-          const isPhiModel = modelConfig.model.toLowerCase().includes('phi');
+          // Check if the endpoint is available
+          await axios.get(`${endpoint}/health`, { timeout: 1000 });
+          console.log(`RD Agent is available at: ${endpoint}`);
           
-          if (isPhiModel) {
-            console.log(`Disabling streaming for ${modelConfig.model} to prevent message flooding`);
-            // Use non-streaming mode for Phi models
-            const result = await ollama.generate({
-              model: modelConfig.model,
-              prompt: processedPrompt,
-              stream: false
-            });
-            
-            fullResponse = result.response;
-            
-            // Parse final response
-            const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
-            
-            // Important: For non-streaming Phi models, we need to explicitly send updates that 
-            // match the structure the frontend expects
-            if (onUpdate) {
-              console.log('Sending non-streaming Phi model response updates:', { 
-                responseLength: cleanedText.length,
-                hasThinking: thoughts.length > 0 || hasIntermediateContent
-              });
-              
-              // First, if we have thinking content, update that
-              if (thoughts) {
-                await onUpdate({
-                  avatarId: avatar.id,
-                  avatarName: avatar.name,
-                  imageUrl: avatar.imageUrl || null,
-                  thinkingContent: thoughts,
-                  hasThinking: true,
-                  response: "",
-                  round
-                });
-              }
-              
-              // Then send the final response with the complete flag
-              // This matches what the frontend expects in App.jsx onmessage handler
-              await onUpdate({
-                avatarId: avatar.id,
-                avatarName: avatar.name,
-                imageUrl: avatar.imageUrl || null,
-                response: cleanedText,
-                thinkingContent: thoughts,
-                hasThinking: thoughts.length > 0 || hasIntermediateContent,
-                isStreaming: false,
-                complete: true,  // This is the key flag the frontend looks for
-                round
-              });
-            }
-            
-            response = {
-              responses: [{
-                avatarId: avatar.id,
-                avatarName: avatar.name,
-                imageUrl: avatar.imageUrl || null,
-                response: cleanedText,
-                thinkingContent: thoughts,
-                hasThinking: thoughts.length > 0 || hasIntermediateContent,
-                isStreaming: false,
-                round
-              }]
-            };
-          } else {
-            // For all other models, use streaming as before
-            // Use the Ollama client instance to generate a response with streaming
-            const stream = await ollama.generate({
-              model: modelConfig.model,
-              prompt: processedPrompt,
-              stream: true
-            });
-
-            for await (const chunk of stream) {
-              if (chunk.response) {
-                fullResponse += chunk.response;
-                if (onUpdate) {
-                  // Parse thinking content from the response
-                  const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
-                  onUpdate({
-                    avatarId: avatar.id,
-                    avatarName: avatar.name,
-                    imageUrl: avatar.imageUrl || null,
-                    response: cleanedText,
-                    thinkingContent: thoughts,
-                    hasThinking: thoughts.length > 0 || hasIntermediateContent,
-                    isStreaming: true,
-                    round
-                  });
-                }
-              }
-            }
-
-            // Parse final response
-            const { cleanedText, thoughts, hasIntermediateContent } = extractThinking(fullResponse, modelConfig.model);
-            response = {
-              responses: [{
-                avatarId: avatar.id,
-                avatarName: avatar.name,
-                imageUrl: avatar.imageUrl || null,
-                response: cleanedText,
-                thinkingContent: thoughts,
-                hasThinking: thoughts.length > 0 || hasIntermediateContent,
-                isStreaming: false,
-                round
-              }]
-            };
-          }
+          // Use the analyze-local-file endpoint
+          response = await axios.post(`${endpoint}/api/analyze-local-file`, {
+            filePath: filePath,
+            task: message.toLowerCase().includes('predict') ? 'prediction' : 'data_analysis',
+            message: message
+          }, { timeout: 30000 });
+          
+          connected = true;
+          console.log(`Successfully connected to RD Agent at: ${endpoint}`);
+          break;
         } catch (err) {
-          console.error('Ollama client generate error:', err);
-          response = {
-            responses: [{
-              avatarId: avatar.id,
-              avatarName: avatar.name,
-              imageUrl: avatar.imageUrl || null,
-              response: "I'm sorry, I'm currently unable to generate a response.",
-              isStreaming: false,
-              round
-            }]
+          console.log(`Failed to connect to RD Agent at ${endpoint}: ${err.message}`);
+        }
+      }
+      
+      if (!connected) {
+        console.error('Could not connect to any RD Agent endpoint');
+        return {
+          response: `I'm having trouble connecting to the analysis service. Please try again later or check if the service is running.`
+        };
+      }
+      
+      if (response && response.data && response.data.jobId) {
+        return {
+          response: `I'm analyzing your dataset at ${filePath}. This may take a moment. Your analysis job ID is ${response.data.jobId}. You can ask me about the results by saying "Check job ID ${response.data.jobId}".`,
+          jobId: response.data.jobId
+        };
+      }
+      
+      return {
+        response: `I started analyzing your file at ${filePath}, but didn't receive a job ID. Please try again or provide a different file path.`
+      };
+    }
+    
+    // If user asks to upload a dataset
+    if (message.toLowerCase().includes("upload") && 
+        (message.toLowerCase().includes("dataset") || 
+         message.toLowerCase().includes("data") || 
+         message.toLowerCase().includes("file") || 
+         message.toLowerCase().includes("csv"))) {
+      return {
+        response: "To analyze your data, please upload a dataset file (CSV, JSON, Excel, or Parquet format) using the file upload button, or provide the full path to a file on your computer if the dataset is very large."
+      };
+    }
+    
+    // Determine if there's a dataset in the selected files
+    const datasetFiles = selectedFiles.filter(file => {
+      const lowerFilename = file.filename?.toLowerCase() || '';
+      return lowerFilename.endsWith('.csv') || 
+             lowerFilename.endsWith('.json') ||
+             lowerFilename.endsWith('.xlsx') ||
+             lowerFilename.endsWith('.xls') ||
+             lowerFilename.endsWith('.parquet') ||
+             lowerFilename.endsWith('.tsv');
+    });
+    
+    console.log(`Found ${datasetFiles.length} data files in the selected files`);
+    
+    // Forward the request to the appropriate RD Agent endpoint
+    if (datasetFiles.length > 0) {
+      // If dataset is uploaded, forward to data analysis endpoint
+      console.log('Dataset detected in selected files, forwarding to RD Agent');
+      
+      try {
+        // Get actual file paths for the dataset files
+        console.log('Selected files:', selectedFiles);
+        
+        const filePaths = [];
+        for (const file of datasetFiles) {
+          let filePath = null;
+          
+          // Try different ways to get the file path
+          if (file.path) {
+            filePath = file.path;
+          } else if (file.storagePath) {
+            filePath = file.storagePath;
+          } else if (file.id) {
+            // Construct path based on ID and storage location
+            filePath = path.join(__dirname, '../../storage/uploads', file.filename);
+          } else if (typeof file === 'string') {
+            filePath = file;
+          }
+          
+          if (filePath) {
+            // Check if file exists
+            try {
+              await fs.promises.access(filePath, fs.constants.R_OK);
+              filePaths.push(filePath);
+              console.log(`File exists and is readable: ${filePath}`);
+            } catch (err) {
+              console.error(`File not accessible: ${filePath}`, err);
+            }
+          }
+        }
+        
+        if (filePaths.length === 0) {
+          return {
+            response: "I found your dataset files, but I'm having trouble accessing them. Please make sure the files are properly uploaded and try again."
           };
         }
-        break;
-
-      default:
-        throw new Error(`Unsupported model type: ${modelConfig.type}`);
+        
+        // Make request to RD Agent with file paths
+        console.log(`Sending ${filePaths.length} files to RD Agent:`, filePaths);
+        
+        // Extract task from message - default to data_analysis if not specified
+        let task = 'data_analysis';
+        if (message.toLowerCase().includes('predict')) {
+          task = 'prediction';
+        } else if (message.toLowerCase().includes('cluster')) {
+          task = 'clustering';
+        } else if (message.toLowerCase().includes('classify')) {
+          task = 'classification';
+        }
+        
+        // Try connecting to different possible RD Agent endpoints
+        let connected = false;
+        let rdAgentResponse = null;
+        
+        for (const endpoint of rdAgentEndpoints) {
+          try {
+            console.log(`Trying to connect to RD Agent at: ${endpoint}`);
+            
+            // Check if the endpoint is available
+            await axios.get(`${endpoint}/health`, { timeout: 1000 });
+            console.log(`RD Agent is available at: ${endpoint}`);
+            
+            // Make request to RD Agent with file paths
+            rdAgentResponse = await axios.post(`${endpoint}/api/run-flow`, {
+              task: task,
+              message: message,
+              filePaths: filePaths,
+              avatarId: avatar.id
+            }, {
+              timeout: 30000
+            });
+            
+            connected = true;
+            console.log(`Successfully connected to RD Agent at: ${endpoint}`);
+            break;
+          } catch (err) {
+            console.log(`Failed to connect to RD Agent at ${endpoint}: ${err.message}`);
+          }
+        }
+        
+        if (!connected) {
+          console.error('Could not connect to any RD Agent endpoint');
+          return {
+            response: `I'm having trouble connecting to the analysis service. Please try again later or check if the service is running.`
+          };
+        }
+        
+        if (rdAgentResponse && rdAgentResponse.data && rdAgentResponse.data.jobId) {
+          return {
+            response: `I'm analyzing your dataset now. This may take a moment. Your analysis job ID is ${rdAgentResponse.data.jobId}. You can ask me about the results by saying "Check job ID ${rdAgentResponse.data.jobId}".`,
+            jobId: rdAgentResponse.data.jobId
+          };
+        }
+        
+        return {
+          response: "I've received your dataset and started the analysis. What specific insights would you like me to look for? For example, I can identify patterns, build predictive models, or generate visualizations from this data."
+        };
+      } catch (error) {
+        console.error('Error forwarding request to RD Agent:', error);
+        return {
+          response: `I encountered an issue while processing your dataset: ${error.message}. Please check that the file format is correct and try again.`
+        };
+      }
     }
-
-    // Validate response
-    if (!response || !response.responses || !response.responses[0] || !response.responses[0].response) {
-      throw new Error('Empty or invalid response from model');
-    }
-
-    return response;
+    
+    // Default response if no dataset
+    return {
+      response: "I'm ready to help with your predictive modeling needs. To get started, please upload a dataset file (CSV, JSON, Excel, or Parquet format) so I can analyze it and help you build a model."
+    };
   } catch (error) {
-    throw new Error(`Error getting response from ${modelConfig.type}: ${error.message}`);
+    console.error('Error connecting to RD Agent service:', error);
+    return {
+      response: "I'm having trouble connecting to the analysis service. Please try again later."
+    };
   }
 }
 
@@ -1086,6 +1051,263 @@ async function getResponseFromModel(prompt, modelConfig) {
   }
 }
 
+async function processFunctionCall(message, functionCall, mcpServer) {
+  try {
+    console.log('Processing function call:', functionCall);
+    
+    // Extract the function name and arguments
+    const functionName = functionCall.name;
+    let args = {};
+    
+    try {
+      args = JSON.parse(functionCall.arguments);
+    } catch (error) {
+      console.error('Error parsing function arguments:', error);
+      return {
+        error: true,
+        message: `Error parsing function arguments: ${error.message}`
+      };
+    }
+    
+    // Execute the function using the MCP server
+    const result = await mcpServer.executeFunction(functionName, args);
+    
+    // Format the result for display
+    let formattedResult = '';
+    
+    // Handle different result formats
+    if (result.content && Array.isArray(result.content)) {
+      // Standard MCP format
+      formattedResult = result.content
+        .map(item => item.text || JSON.stringify(item))
+        .join('\n');
+    } else if (result.status === "OK" && result.data) {
+      // SEC filings and similar formats
+      formattedResult = JSON.stringify(result.data, null, 2);
+    } else {
+      // Fall back to simple stringification
+      formattedResult = JSON.stringify(result, null, 2);
+    }
+    
+    // Format the result specifically for different tools
+    if (functionName === 'google_weather') {
+      // Extract and format weather data
+      try {
+        const weatherData = JSON.parse(formattedResult);
+        formattedResult = formatWeatherResponse(weatherData);
+      } catch (e) {
+        // Keep the original format if parsing fails
+        console.error('Failed to format weather data:', e);
+      }
+    } else if (functionName === 'sec_filings') {
+      // Format SEC filings data
+      try {
+        const filingsData = JSON.parse(formattedResult);
+        formattedResult = formatSecFilingsResponse(filingsData);
+      } catch (e) {
+        console.error('Failed to format SEC filings data:', e);
+      }
+    } else if (functionName.startsWith('yahoo_finance')) {
+      // Format Yahoo Finance data
+      try {
+        const financeData = JSON.parse(formattedResult);
+        formattedResult = formatYahooFinanceResponse(functionName, financeData);
+      } catch (e) {
+        console.error('Failed to format Yahoo Finance data:', e);
+      }
+    }
+    
+    return formattedResult;
+    
+  } catch (error) {
+    console.error('Error executing function call:', error);
+    return {
+      error: true,
+      message: `Error executing function: ${error.message}`
+    };
+  }
+}
+
+// Helper function to format weather responses
+function formatWeatherResponse(data) {
+  if (!data || !data.location) return JSON.stringify(data, null, 2);
+  
+  let formatted = `Weather for ${data.location}:\n\n`;
+  
+  // Add current weather
+  if (data.current) {
+    formatted += `Current conditions: ${data.current.condition}, ${data.current.temperature}°C`;
+    formatted += `\nFeels like: ${data.current.feels_like}°C`;
+    formatted += `\nHumidity: ${data.current.humidity}%`;
+    formatted += `\nWind: ${data.current.wind_speed} km/h ${data.current.wind_direction}`;
+  }
+  
+  // Add forecast
+  if (data.forecast && data.forecast.length > 0) {
+    formatted += '\n\nForecast:\n';
+    data.forecast.forEach(day => {
+      formatted += `\n${day.date}: ${day.condition}, ${day.temperature.min}°C to ${day.temperature.max}°C`;
+      formatted += `, ${day.precipitation}% chance of precipitation`;
+    });
+  }
+  
+  return formatted;
+}
+
+// Helper function to format SEC filings responses
+function formatSecFilingsResponse(data) {
+  if (!data) return 'No filing data available';
+  
+  if (data.error) {
+    return `Error retrieving SEC filings: ${data.error}`;
+  }
+  
+  const filings = Array.isArray(data) ? data : data.filings || data.data || [];
+  
+  if (filings.length === 0) {
+    return 'No SEC filings found matching your criteria.';
+  }
+  
+  let formatted = `SEC filings found:\n\n`;
+  
+  filings.forEach((filing, idx) => {
+    formatted += `${idx + 1}. ${filing.filing_type} (${filing.filing_date}): ${filing.description}\n`;
+  });
+  
+  return formatted;
+}
+
+// Helper function to format Yahoo Finance responses
+function formatYahooFinanceResponse(functionName, data) {
+  if (!data) return 'No financial data available';
+  
+  if (data.error) {
+    return `Error retrieving financial data: ${data.error}`;
+  }
+  
+  let formatted = '';
+  
+  if (functionName === 'yahoo_finance_stock_metric') {
+    const symbol = data.symbol || 'Unknown';
+    formatted = `Financial data for ${data.longName || symbol} (${symbol}):\n\n`;
+    
+    // Format based on the metric
+    if (data.regularMarketPrice || data.currentPrice) {
+      const price = data.regularMarketPrice || data.currentPrice;
+      formatted += `Current Price: $${price.toFixed(2)}\n`;
+      
+      if (data.regularMarketChangePercent) {
+        const changeDirection = data.regularMarketChangePercent > 0 ? '📈' : '📉';
+        formatted += `Change: ${changeDirection} ${data.regularMarketChangePercent.toFixed(2)}%\n`;
+      }
+    }
+    
+    if (data.marketCap) {
+      const marketCapInBillions = data.marketCap / 1000000000;
+      if (marketCapInBillions >= 1) {
+        formatted += `Market Cap: $${marketCapInBillions.toFixed(2)} billion\n`;
+      } else {
+        const marketCapInMillions = data.marketCap / 1000000;
+        formatted += `Market Cap: $${marketCapInMillions.toFixed(2)} million\n`;
+      }
+    }
+    
+    // Add other metrics if available
+    const metricsMap = {
+      'trailingPE': 'P/E Ratio',
+      'dividendYield': 'Dividend Yield',
+      'fiftyTwoWeekHigh': '52-Week High',
+      'fiftyTwoWeekLow': '52-Week Low'
+    };
+    
+    for (const [key, label] of Object.entries(metricsMap)) {
+      if (data[key] !== undefined) {
+        formatted += `${label}: ${data[key]}\n`;
+      }
+    }
+    
+  } else if (functionName === 'yahoo_finance_historical_data') {
+    const symbol = data.symbol || 'Unknown';
+    const period = data.period || 'recent period';
+    
+    formatted = `Historical data for ${symbol} over the ${period}:\n\n`;
+    
+    if (data.historicalData && data.historicalData.length > 0) {
+      // Add a summary table
+      formatted += "Date        | Open    | Close   | % Change\n";
+      formatted += "------------|---------|---------|----------\n";
+      
+      // Show only the first 5 entries for brevity
+      const displayData = data.historicalData.slice(0, 5);
+      displayData.forEach(point => {
+        const date = new Date(point.date).toLocaleDateString();
+        const open = `$${point.open.toFixed(2)}`;
+        const close = `$${point.close.toFixed(2)}`;
+        const change = ((point.close - point.open) / point.open * 100).toFixed(2);
+        const changeFormatted = change > 0 ? `+${change}%` : `${change}%`;
+        
+        formatted += `${date.padEnd(12)} | ${open.padEnd(8)} | ${close.padEnd(8)} | ${changeFormatted}\n`;
+      });
+      
+      if (data.historicalData.length > 5) {
+        formatted += `\n... and ${data.historicalData.length - 5} more data points.`;
+      }
+    } else {
+      formatted += "No historical data available for this period.";
+    }
+  }
+  
+  return formatted;
+}
+
+/**
+ * Detects and fixes Vega-Lite specifications that are missing the required markers
+ * @param {string} response - The response text from the LLM
+ * @returns {string} - The response with properly formatted Vega-Lite specifications
+ */
+function ensureVegaLiteMarkers(response) {
+  if (!response) return response;
+  
+  // First, check if there are already properly formatted specs
+  if (response.includes('[GRAPH_START]') && response.includes('[GRAPH_END]')) {
+    return response;
+  }
+  
+  // Look for potential Vega-Lite specs (JSON objects with Vega-Lite characteristics)
+  const jsonBlockRegex = /```(?:json|vega-lite)?\s*({[\s\S]*?})```/g;
+  
+  return response.replace(jsonBlockRegex, (match, jsonContent) => {
+    try {
+      const parsed = JSON.parse(jsonContent);
+      
+      // Check if this looks like a Vega-Lite spec
+      if (
+        parsed && 
+        (
+          // Has data property
+          (parsed.data || parsed.url || (parsed.datasets && Object.keys(parsed.datasets).length > 0)) &&
+          // Has mark or is a composite visualization
+          (parsed.mark !== undefined || parsed.layer || parsed.hconcat || parsed.vconcat || parsed.facet) &&
+          // Has encoding or is a composite visualization
+          (parsed.encoding || parsed.layer || parsed.hconcat || parsed.vconcat || parsed.facet)
+        )
+      ) {
+        console.log('Found unmarked Vega-Lite spec, adding markers');
+        return `[GRAPH_START]\n${jsonContent}\n[GRAPH_END]`;
+      }
+    } catch (e) {
+      // Not valid JSON, return the original match
+      console.log('Failed to parse potential Vega-Lite spec:', e.message);
+    }
+    
+    return match;
+  });
+}
+
 module.exports = {
-  getResponse
+  getResponse,
+  detectToolRequest,
+  processFunctionCall,
+  extractCompanyName,
+  downloadFileFromUrl,
 };

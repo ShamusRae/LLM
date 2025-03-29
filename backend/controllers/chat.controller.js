@@ -115,6 +115,9 @@ exports.sendChat = async (req, res) => {
   } catch (error) {
     console.error('Error in sendChat:', error);
     
+    // Safely extract sessionId from request body to avoid reference error
+    const sessionId = req.body && req.body.sessionId ? req.body.sessionId : 'unknown-session';
+    
     // Try to send error through SSE if available
     const sendUpdate = streamResponses.get(sessionId);
     if (sendUpdate) {
@@ -148,7 +151,27 @@ exports.sendChat = async (req, res) => {
 
 exports.saveSession = async (req, res) => {
   try {
-    const { id, messages } = req.body;
+    let sessionData;
+    
+    // Handle both regular POST requests and beacon requests
+    // Beacon requests may come as raw JSON
+    if (req.headers['content-type'] === 'application/json') {
+      sessionData = req.body;
+    } else if (req.headers['content-type'] === 'text/plain') {
+      // Parse text/plain as JSON (sometimes sendBeacon sends this)
+      try {
+        sessionData = JSON.parse(req.body);
+      } catch (e) {
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'Invalid JSON in request body'
+        });
+      }
+    } else {
+      sessionData = req.body;
+    }
+    
+    const { id, messages } = sessionData;
     
     // Validate required fields
     if (!id || !messages) {
@@ -170,20 +193,20 @@ exports.saveSession = async (req, res) => {
     const sessionFile = path.join(sessionDir, `${id}.json`);
     
     // Add metadata to session
-    const sessionData = {
+    const finalSessionData = {
       id,
       messages,
       updatedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString()
+      createdAt: sessionData.createdAt || new Date().toISOString()
     };
 
-    await fs.writeFile(sessionFile, JSON.stringify(sessionData, null, 2));
+    await fs.writeFile(sessionFile, JSON.stringify(finalSessionData, null, 2));
     console.log('Session saved successfully:', id);
     
     res.json({ 
       success: true, 
       sessionId: id,
-      updatedAt: sessionData.updatedAt
+      path: sessionFile
     });
   } catch (err) {
     console.error('Error saving session:', err);
