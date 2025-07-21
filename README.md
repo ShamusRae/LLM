@@ -1,208 +1,177 @@
-# LLM Chat Application 🤖💬
+# 🤖 LLM Chat - Advanced Multi-Model AI Chat Platform
 
-A robust, multi-service LLM chat application with dynamic port discovery and AI service orchestration.
+A sophisticated LLM chat application featuring multi-model support, MCP tool integration, and real-time financial data access.
+
+## 🌟 Key Features
+
+### **Multi-Model AI Support**
+- **OpenAI** (GPT-4, GPT-4o)
+- **Anthropic** (Claude 3.5 Sonnet, Claude 3 Opus)  
+- **Ollama** (Local models: QwQ, DeepSeek, etc.)
+
+### **Real-Time Data Integration (MCP)**
+- **✅ Yahoo Finance**: Live stock prices, market data, historical charts
+- **✅ SEC Edgar**: Company filings, 10-K, 10-Q, 8-K reports
+- **🔧 Google Maps**: Location search and mapping (configurable)
+- **🔧 Weather Data**: Current conditions and forecasts (configurable)
+- **🔧 Companies House**: UK company information (configurable)
+
+### **Advanced Chat Features**
+- **Conversation Context**: Persistent memory across sessions
+- **Thinking Indicators**: Visual feedback during AI processing
+- **Smart Auto-Scroll**: Intelligent chat navigation
+- **File Upload**: Document analysis and context integration
+- **Session Management**: Save and resume conversations
+
+### **Avatar & Team Management**
+- **Custom Avatars**: Create AI personas with specific roles
+- **Tool Configuration**: Per-avatar tool access control
+- **Team Collaboration**: Multi-avatar discussions
+- **Agent Wizard**: Guided avatar creation process
+
+### **Visual Workflow Editor**
+- **Flow-based Design**: Drag-and-drop workflow creation
+- **Node-based Processing**: Data transformation, API integration
+- **Real-time Execution**: Live workflow processing
+- **Custom Nodes**: Extensible architecture
 
 ## 🚀 Quick Start
 
+### Prerequisites
+- **Node.js 18+**
+- **Python 3.8+** (for RD-Agent features)
+- **Git**
+
+### Installation
+
+1. **Clone the repository**
 ```bash
-# Start all services with automatic port discovery
+git clone https://github.com/ShamusRae/LLM.git
+cd LLM
+```
+
+2. **Set up environment variables**
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your API keys:
+```env
+OPENAI_API_KEY=your_openai_key_here
+ANTHROPIC_API_KEY=your_claude_key_here
+```
+
+3. **Install dependencies**
+```bash
+# Backend
+cd backend && npm install
+
+# Frontend  
+cd ../frontend && npm install
+```
+
+4. **Start the application**
+```bash
+# From project root
 ./start.sh
+```
 
-# Check application status
-./status.sh
+The application will be available at:
+- **Frontend**: http://localhost:5173
+- **Backend API**: http://localhost:3001
 
-# View real-time logs
-./logs.sh
+## 🔧 Configuration
 
-# Stop all services
-./stop.sh
+### **MCP Tools Setup**
+
+Enable real-time data tools in Settings:
+
+- **Yahoo Finance** ✅ (Working) - Real stock data via `yahoo-finance2`
+- **SEC Edgar** ✅ (Working) - Official SEC API integration  
+- **Google Maps** - Requires `GOOGLE_MAPS_API_KEY`
+- **Weather Data** - Requires weather service API key
+- **Companies House** - Requires Companies House API key
+
+### **Ollama Setup (Optional)**
+
+For local AI models:
+```bash
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull models
+ollama pull qwq:latest
+ollama pull deepseek-r1:32b
 ```
 
 ## 🏗️ Architecture
 
-This application consists of three main services:
-
-- **Backend** (`backend/`) - Express.js API server with AI service integration
-- **Frontend** (`frontend/`) - React application with Vite dev server
-- **Avatar Wrapper** (`modules/avatar_predictive_wrapper_rd_agent/`) - AI agent wrapper service
-
-## 🌐 Dynamic Port Discovery
-
-The application automatically discovers available ports to avoid conflicts:
-
-- **Backend**: Starts from port 3001, finds next available
-- **Avatar Wrapper**: Starts from Backend port + 1
-- **Frontend**: Starts from port 5173, finds next available
-
-### Port Configuration
-
-Ports can be configured via environment variables:
-
-```bash
-# Set custom ports (optional)
-export BACKEND_PORT=4001
-export WRAPPER_PORT=4002
-export FRONTEND_PORT=6173
-
-# Start with custom ports
-./start.sh
-```
-
-## 📁 Project Structure
-
 ```
 LLM Chat/
-├── backend/                 # Express.js backend
-│   ├── services/ai/        # AI service providers (OpenAI, Claude, Ollama)
-│   ├── routes/             # API routes
-│   ├── controllers/        # Route controllers
-│   └── server.js           # Main server file
-├── frontend/               # React frontend
-│   ├── src/
-│   │   ├── components/     # React components
-│   │   ├── pages/          # Page components
-│   │   └── state/          # Redux state management
-│   └── vite.config.js      # Vite configuration
-├── modules/                # Additional services
-│   └── avatar_predictive_wrapper_rd_agent/
-├── ecosystem.config.js     # PM2 configuration
-├── start.sh               # Dynamic startup script
-├── stop.sh                # Stop all services
-├── logs.sh                # View logs
-├── status.sh              # Check status
-└── .env.example           # Environment variables example
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-Copy `.env.example` to `.env` and configure:
-
-```bash
-# Service Ports (auto-discovered if not set)
-BACKEND_PORT=3001
-WRAPPER_PORT=3002
-FRONTEND_PORT=5173
-
-# API Keys
-OPENAI_API_KEY=your_openai_api_key_here
-CLAUDE_API_KEY=your_claude_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-```
-
-### AI Service Integration
-
-The application supports multiple AI providers:
-
-- **OpenAI**: GPT models, DALL-E image generation
-- **Claude**: Anthropic's Claude models
-- **Ollama**: Local model execution
-
-## 📊 Process Management
-
-The application uses PM2 for robust process management:
-
-```bash
-# View detailed process status
-pm2 status
-
-# View logs for specific service
-pm2 logs backend
-pm2 logs frontend
-pm2 logs avatar-wrapper
-
-# Restart specific service
-pm2 restart backend
-
-# Monitor processes
-pm2 monit
+├── backend/                 # Node.js Express API
+│   ├── controllers/        # API endpoints
+│   ├── services/          # Business logic
+│   │   ├── ai/           # AI provider integrations
+│   │   ├── mcpService.js # MCP tool management
+│   │   └── yahooFinance/ # Real-time finance data
+│   └── routes/           # API routing
+├── frontend/               # React application
+│   ├── components/        # UI components
+│   ├── pages/            # Application pages  
+│   ├── services/         # API clients
+│   └── store/           # State management
+└── modules/               # Extension modules
+    └── rd-agent/         # Predictive modeling
 ```
 
 ## 🛠️ Development
 
-### Prerequisites
-
-- Node.js 18+
-- npm or yarn
-- PM2 (`npm install -g pm2`)
-
-### Setup
-
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   npm install --prefix backend
-   npm install --prefix frontend
-   ```
-3. Configure environment variables (copy `.env.example` to `.env`)
-4. Start the application: `./start.sh`
-
-### Adding New AI Providers
-
-1. Create a new provider class in `backend/services/ai/`
-2. Extend `BaseProvider` and implement required methods
-3. Register the provider in `aiService.js`
-
-## 🚦 Health Checks
-
-The application includes health check endpoints:
-
-- Backend: `http://localhost:{BACKEND_PORT}/api/health`
-- Model Discovery: `http://localhost:{BACKEND_PORT}/api/llm/discover`
-
-## 📝 API Documentation
-
-### Core Endpoints
-
-- `GET /api/health` - Service health check
-- `GET /api/settings` - User settings and configuration
-- `GET /api/chat/sessions` - Chat session history
-- `POST /api/chat` - Send chat message
-- `GET /api/llm/discover` - Discover available AI models
-
-## 🔒 Security Considerations
-
-- API keys are loaded from environment variables
-- CORS is configured for local development
-- File uploads are validated and size-limited
-- All AI API calls are properly authenticated
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **Port conflicts**: The startup script automatically finds available ports
-2. **Service not starting**: Check `pm2 logs` for detailed error messages
-3. **API keys**: Ensure valid API keys are set in `.env`
-4. **Dependencies**: Run `npm install` in both `backend/` and `frontend/` directories
-
-### Debug Commands
-
+### **Backend Development**
 ```bash
-# Check which ports are in use
-lsof -i -P | grep LISTEN
-
-# View PM2 process details
-pm2 show backend
-
-# Reset PM2 processes
-pm2 delete all
-./start.sh
+cd backend
+npm run dev        # Development server
+npm run test       # Run tests
 ```
 
-## 📄 License
+### **Frontend Development**  
+```bash
+cd frontend
+npm run dev        # Vite dev server
+npm run build      # Production build
+npm run test       # Run tests
+```
 
-This project is licensed under the MIT License.
+### **Process Management**
+```bash
+./start.sh         # Start all services
+./stop.sh          # Stop all services  
+./status.sh        # Check service status
+```
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **OpenAI** for GPT models and function calling
+- **Anthropic** for Claude models  
+- **Yahoo Finance** for real-time market data
+- **SEC.gov** for financial filings API
+- **Ollama** for local model hosting
+
+## 🐛 Issues & Support
+
+Found a bug or need help? Please open an issue on [GitHub](https://github.com/ShamusRae/LLM/issues).
 
 ---
 
-Built with ❤️ using Node.js, React, and modern AI APIs. 
+**⭐ Star this repo if you find it useful!** 
