@@ -12,6 +12,8 @@ class MCPService {
       onMessage: null
     };
     this.availableTools = [];
+    this.connectionAttempts = 0;
+    this.maxReconnectAttempts = 5;
   }
 
   /**
@@ -26,14 +28,36 @@ class MCPService {
 
     this.sessionId = sessionId;
     this.callbacks = { ...this.callbacks, ...callbacks };
+    this.connectionAttempts = 0;
+    this.maxReconnectAttempts = 5;
 
-    const url = `/api/mcp/stream/${sessionId}`;
+    this.connectEventSource();
+
+    // Load available tools for this session
+    this.loadAvailableTools();
+
+    return this;
+  }
+
+  /**
+   * Helper method to establish the EventSource connection with error handling
+   */
+  connectEventSource() {
+    const url = `/api/mcp/stream/${this.sessionId}`;
     this.eventSource = new EventSource(url);
 
     this.eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('MCP event received:', data);
+        
+        // Reset reconnect attempts on successful message 
+        this.connectionAttempts = 0;
+        
+        // Handle heartbeats silently
+        if (data.type === 'heartbeat') {
+          return;
+        }
         
         if (this.callbacks.onMessage) {
           this.callbacks.onMessage(data);
@@ -54,13 +78,32 @@ class MCPService {
 
     this.eventSource.onerror = (error) => {
       console.error('MCP SSE connection error:', error);
-      this.reconnect();
+      
+      // Only try to reconnect if we haven't exceeded max attempts
+      if (this.connectionAttempts < this.maxReconnectAttempts) {
+        this.connectionAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, this.connectionAttempts), 30000);
+        console.log(`Reconnecting MCP (attempt ${this.connectionAttempts}) in ${delay}ms`);
+        
+        setTimeout(() => {
+          this.reconnect();
+        }, delay);
+      } else {
+        console.error(`Exceeded maximum reconnection attempts (${this.maxReconnectAttempts})`);
+        if (this.callbacks.onConnectionError) {
+          this.callbacks.onConnectionError('Connection to the server was lost. Please refresh the page.');
+        }
+        this.disconnect();
+      }
     };
-
-    // Load available tools for this session
-    this.loadAvailableTools();
-
-    return this;
+    
+    this.eventSource.onopen = () => {
+      console.log('MCP SSE connection established');
+      this.connectionAttempts = 0;
+      if (this.callbacks.onConnect) {
+        this.callbacks.onConnect();
+      }
+    };
   }
 
   /**
@@ -97,15 +140,18 @@ class MCPService {
   }
 
   /**
-   * Attempt to reconnect to the MCP server
+   * Reconnect to the MCP server
    */
   reconnect() {
-    if (this.sessionId) {
-      setTimeout(() => {
-        console.log('Attempting to reconnect to MCP server...');
-        this.connect(this.sessionId, this.callbacks);
-      }, 3000);
+    if (this.eventSource) {
+      this.disconnect();
     }
+    
+    if (this.callbacks.onReconnecting) {
+      this.callbacks.onReconnecting();
+    }
+    
+    this.connectEventSource();
   }
 
   /**

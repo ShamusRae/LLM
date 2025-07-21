@@ -75,17 +75,16 @@ exports.streamChat = async (req, res) => {
 
 exports.sendChat = async (req, res) => {
   try {
-    const { message, sessionId, avatarId, activeAvatars, selectedFiles } = req.body;
+    const { message, sessionId, avatarId, activeAvatars, selectedFiles, conversationContext } = req.body;
     
-    // Get the sendUpdate function for this session
+    // Get the sendUpdate function for this session (optional now)
     const sendUpdate = streamResponses.get(sessionId);
-    if (!sendUpdate) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'No SSE connection established for this session'
-      });
-    }
-
+    
+    // Provide a fallback sendUpdate function if SSE is not established
+    const safeSendUpdate = sendUpdate || ((data) => {
+      console.log('SSE not available, would send:', data);
+    });
+    
     // Set response timeout
     res.setTimeout(180000, () => {
       if (sendUpdate) {
@@ -107,7 +106,8 @@ exports.sendChat = async (req, res) => {
       avatarId, 
       activeAvatars,
       selectedFiles,
-      onUpdate: sendUpdate
+      conversationContext, // Pass conversation context to backend
+      onUpdate: safeSendUpdate
     });
 
     // Send final response
@@ -127,7 +127,7 @@ exports.sendChat = async (req, res) => {
       });
     }
     
-    // Send error response
+    // Enhanced error responses with helpful messages
     if (error.message.includes('timeout')) {
       return res.status(504).json({ 
         error: 'Gateway Timeout',
@@ -142,9 +142,18 @@ exports.sendChat = async (req, res) => {
       });
     }
     
+    if (error.message.includes('API key') || error.message.includes('not configured')) {
+      return res.status(400).json({
+        error: 'Configuration Error',
+        message: error.message,
+        suggestion: 'Please configure your API keys in settings or ensure Ollama is running for local AI'
+      });
+    }
+    
     return res.status(500).json({ 
       error: 'Internal Server Error',
-      message: error.message
+      message: error.message,
+      suggestion: 'Please try again or check the service health in settings'
     });
   }
 };

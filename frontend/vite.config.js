@@ -1,15 +1,27 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import svgr from 'vite-plugin-svgr';
+
+// Get ports from environment variables with fallbacks
+const apiPort = process.env.VITE_API_PORT || 3001;
+const frontendPort = process.env.FRONTEND_PORT || 5173;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    svgr({ 
+      svgrOptions: {
+        // svgr options
+      },
+    }),
+  ],
   server: {
-    host: '127.0.0.1',
-    port: 5173,
-    strictPort: true,
+    host: 'localhost',
+    port: frontendPort,
+    strictPort: false, // Allow Vite to find an available port if needed
     hmr: {
       protocol: 'ws',
-      host: '127.0.0.1',
+      host: 'localhost',
       port: 5173,
       clientPort: 5173,
       timeout: 120000,
@@ -21,7 +33,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3001',
+        target: `http://localhost:${apiPort}`,
         changeOrigin: true,
         secure: false,
         ws: true,
@@ -38,10 +50,15 @@ export default defineConfig({
         }
       },
       '/avatars': {
-        target: 'http://127.0.0.1:3001',
+        target: `http://localhost:${apiPort}`,
         changeOrigin: true,
         secure: false
       }
     }
+  },
+  define: {
+    // Disable Mirage in all environments
+    'process.env.DISABLE_MIRAGE': JSON.stringify(true),
+    'window.DISABLE_MIRAGE': true
   }
 }); 

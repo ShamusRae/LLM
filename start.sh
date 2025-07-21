@@ -1,168 +1,96 @@
 #!/bin/bash
 
-# Start services script with dynamic port management
-# This script starts all required services with appropriate port ranges
-
-# Color codes for output
+# Colors for output
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Print colored message
-print() {
-  local color=$1
-  local message=$2
-  echo -e "${color}${message}${NC}"
-}
+echo -e "${BLUE}🚀 Starting LLM Chat Application with Dynamic Port Discovery${NC}"
 
 # Function to check if a port is available
 is_port_available() {
   local port=$1
-  if command -v nc >/dev/null 2>&1; then
-    nc -z localhost $port >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
-      return 1 # Port is in use
-    else
-      return 0 # Port is available
-    fi
-  elif command -v lsof >/dev/null 2>&1; then
-    lsof -i :$port >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
-      return 1 # Port is in use
-    else
-      return 0 # Port is available
-    fi
+  if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+    return 1 # Port is in use
   else
-    # If we can't check, assume it's available
-    return 0
+    return 0 # Port is available
   fi
 }
 
-# Find an available port in a range
+# Function to find an available port starting from a given port
 find_available_port() {
   local start_port=$1
-  local end_port=$2
-  local current_port=$start_port
+  local port=$start_port
+  local max_attempts=100
+  local attempts=0
   
-  while [ $current_port -le $end_port ]; do
-    if is_port_available $current_port; then
-      echo $current_port
+  while [ $attempts -lt $max_attempts ]; do
+    if is_port_available $port; then
+      echo $port
       return 0
     fi
-    ((current_port++))
+    port=$((port + 1))
+    attempts=$((attempts + 1))
   done
   
-  # If no ports in the range are available, return the start port
-  # and let the service's internal port discovery handle it
-  echo $start_port
+  echo "ERROR: Could not find available port starting from $start_port" >&2
   return 1
 }
 
-# Kill existing processes that might conflict
-cleanup() {
-  print $YELLOW "Cleaning up existing processes..."
-  
-  # More aggressive process cleanup for specific ports
-  for port in 3001 3002 3051 3052 3053 3054 3055 5173 5174 5175; do
-    pid=$(lsof -ti :$port 2>/dev/null)
-    if [ ! -z "$pid" ]; then
-      print $YELLOW "Killing process $pid on port $port"
-      kill -9 $pid 2>/dev/null || true
-    fi
-  done
-  
-  # Kill any node processes related to our application
-  print $YELLOW "Killing any existing node processes for this application..."
-  pkill -f "node.*LLM Chat" 2>/dev/null || true
-  pkill -f "node.*llm-chat" 2>/dev/null || true
-  
-  # Kill any npm processes related to our application
-  print $YELLOW "Killing any existing npm processes for this application..."
-  pkill -f "npm.*LLM Chat" 2>/dev/null || true
-  pkill -f "npm.*llm-chat" 2>/dev/null || true
-  
-  print $GREEN "Cleanup complete"
-  
-  # Larger delay to ensure ports are fully released
-  sleep 5
-}
+# Discover available ports
+echo -e "${YELLOW}🔍 Discovering available ports...${NC}"
 
-# Set up temporary file directories
-setup_directories() {
-  print $YELLOW "Setting up directories..."
-  
-  # Project root directory
-  ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-  
-  # Create necessary directories if they don't exist
-  mkdir -p "$ROOT_DIR/storage/uploads" "$ROOT_DIR/storage/avatars" "$ROOT_DIR/storage/sessions" "$ROOT_DIR/storage/markdown" "$ROOT_DIR/storage/team-images"
-  mkdir -p "$ROOT_DIR/modules/avatar_predictive_wrapper_rd_agent/tmp/configs" "$ROOT_DIR/modules/avatar_predictive_wrapper_rd_agent/tmp/outputs" "$ROOT_DIR/modules/avatar_predictive_wrapper_rd_agent/logs"
-  
-  print $GREEN "Directories set up successfully"
-}
+BACKEND_PORT=$(find_available_port 3001)
+if [ $? -ne 0 ]; then
+  echo -e "${RED}❌ Failed to find available port for backend${NC}"
+  exit 1
+fi
 
-# Run cleanup first
-cleanup
+WRAPPER_PORT=$(find_available_port $((BACKEND_PORT + 1)))
+if [ $? -ne 0 ]; then
+  echo -e "${RED}❌ Failed to find available port for avatar wrapper${NC}"
+  exit 1
+fi
 
-# Set up directories
-setup_directories
+FRONTEND_PORT=$(find_available_port 5173)
+if [ $? -ne 0 ]; then
+  echo -e "${RED}❌ Failed to find available port for frontend${NC}"
+  exit 1
+fi
 
-# Project root directory
-ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$ROOT_DIR"
+# Export environment variables
+export BACKEND_PORT=$BACKEND_PORT
+export WRAPPER_PORT=$WRAPPER_PORT
+export FRONTEND_PORT=$FRONTEND_PORT
 
-print $BLUE "Starting services with dynamic port allocation..."
+echo -e "${GREEN}✅ Port assignments:${NC}"
+echo -e "   Backend: ${GREEN}$BACKEND_PORT${NC}"
+echo -e "   Avatar Wrapper: ${GREEN}$WRAPPER_PORT${NC}"
+echo -e "   Frontend: ${GREEN}$FRONTEND_PORT${NC}"
 
-# Start backend service
-cd "$ROOT_DIR/backend"
-print $YELLOW "Starting backend service..."
-# Find an available port for the backend
-BACKEND_PORT=$(find_available_port 3001 3050)
-print $BLUE "Using port $BACKEND_PORT for backend"
-PORT=$BACKEND_PORT node server.js &
-BACKEND_PID=$!
-print $GREEN "Backend service started with PID: $BACKEND_PID on port $BACKEND_PORT"
+# Create .env file for persistence
+echo "BACKEND_PORT=$BACKEND_PORT" > .env
+echo "WRAPPER_PORT=$WRAPPER_PORT" >> .env
+echo "FRONTEND_PORT=$FRONTEND_PORT" >> .env
 
-# Let backend initialize
-sleep 3
+echo -e "${BLUE}📝 Environment variables saved to .env file${NC}"
 
-# Start avatar wrapper service
-cd "$ROOT_DIR/modules/avatar_predictive_wrapper_rd_agent"
-print $YELLOW "Starting avatar wrapper service..."
-# Find an available port for the avatar wrapper
-WRAPPER_PORT=$(find_available_port 3051 3100)
-print $BLUE "Using port $WRAPPER_PORT for avatar wrapper"
-PORT=$WRAPPER_PORT node server.js &
-AVATAR_PID=$!
-print $GREEN "Avatar wrapper service started with PID: $AVATAR_PID on port $WRAPPER_PORT"
+# Start services with pm2
+echo -e "${BLUE}🎬 Starting all services with pm2...${NC}"
+pm2 start ecosystem.config.js
 
-# Let avatar wrapper initialize
-sleep 3
-
-# Start frontend service
-cd "$ROOT_DIR/frontend" 
-print $YELLOW "Starting frontend service..."
-FRONTEND_PORT=$(find_available_port 5173 5200)
-print $BLUE "Using port $FRONTEND_PORT for frontend"
-
-# Set Vite environment variable to disable Mirage
-export VITE_DISABLE_MIRAGE=true
-PORT=$FRONTEND_PORT VITE_API_PORT=$BACKEND_PORT VITE_WRAPPER_PORT=$WRAPPER_PORT npm run dev &
-FRONTEND_PID=$!
-print $GREEN "Frontend service started with PID: $FRONTEND_PID on port $FRONTEND_PORT"
-
-print $BLUE "---------------------------------"
-print $GREEN "All services started successfully!"
-print $BLUE "The services will discover each other automatically."
-print $BLUE "Access the application at: http://localhost:$FRONTEND_PORT"
-print $BLUE "Backend running on: http://localhost:$BACKEND_PORT"
-print $BLUE "RD Agent running on: http://localhost:$WRAPPER_PORT"
-print $BLUE "---------------------------------"
-print $YELLOW "Note: To work with large datasets (800MB+), use the file path approach:"
-print $YELLOW "Tell Ada Lovelace: \"Analyze the dataset at /Users/shamusrae/path/to/your_file.csv\""
-print $BLUE "---------------------------------"
-
-# Wait for user to press Ctrl+C
-wait 
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✅ All services started successfully!${NC}"
+  echo ""
+  echo -e "${BLUE}🌐 Access your application at:${NC}"
+  echo -e "   Frontend: ${GREEN}http://localhost:$FRONTEND_PORT${NC}"
+  echo -e "   Backend API: ${GREEN}http://localhost:$BACKEND_PORT${NC}"
+  echo -e "   Avatar Wrapper: ${GREEN}http://localhost:$WRAPPER_PORT${NC}"
+  echo ""
+  echo -e "${YELLOW}📊 Use 'pm2 logs' to view logs and 'pm2 stop all' to stop services.${NC}"
+else
+  echo -e "${RED}❌ Failed to start services${NC}"
+  exit 1
+fi 

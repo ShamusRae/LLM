@@ -1,12 +1,33 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
+import { discoverService } from '../services/serviceDiscovery';
 
-const FileList = forwardRef(({ onSelectedFilesChange }, ref) => {
+// Remove hard-coded API_BASE
+// const API_BASE = 'http://localhost:3001'; // Adjust this if your server runs on a different port
+
+const FileList = forwardRef(({ onSelectedFilesChange, onFileUploadComplete }, ref) => {
   const [files, setFiles] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [backendUrl, setBackendUrl] = useState('');
+
+  // Discover backend service on component mount
+  useEffect(() => {
+    const initializeBackendConnection = async () => {
+      try {
+        const url = await discoverService('backend');
+        setBackendUrl(url);
+      } catch (err) {
+        console.error('Failed to discover backend service:', err);
+        setError('Failed to connect to backend service. Please check if backend is running.');
+      }
+    };
+    
+    initializeBackendConnection();
+  }, []);
 
   // Expose clearSelection method through ref
   useImperativeHandle(ref, () => ({
@@ -16,19 +37,58 @@ const FileList = forwardRef(({ onSelectedFilesChange }, ref) => {
     }
   }));
 
-  const fetchFiles = async () => {
+  const fetchFiles = async (retries = 3) => {
+    if (!backendUrl) {
+      setError('Cannot fetch files: Backend service not discovered yet');
+      setLoading(false);
+      return [];
+    }
+    
     try {
-      const response = await axios.get('/api/file/list');
+      setLoading(true);
+      console.log('Fetching file list from server...');
+      
+      // Add a small delay to make sure server has time to complete operations
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const response = await axios.get(`${backendUrl}/api/file/list`);
       setFiles(response.data.files || []);
+      console.log(`Fetched ${response.data.files?.length || 0} files from server`, response.data);
+      
+      // Clear any previous errors if the request succeeds
+      if (error) setError(null);
+      
+      return response.data.files || [];
     } catch (err) {
       console.error('Error fetching files:', err);
-      setError('Failed to load files');
+      // Add retry logic
+      if (retries > 0) {
+        console.log(`Retrying fetch (${retries} attempts left)...`);
+        // Increase wait time with each retry
+        await new Promise(resolve => setTimeout(resolve, 1000 * (4 - retries)));
+        return fetchFiles(retries - 1);
+      }
+      
+      let errorMessage = 'Failed to load files';
+      if (err.response) {
+        errorMessage = `Server error: ${err.response.status} - ${err.response.data?.error || 'Unknown error'}`;
+      } else if (err.request) {
+        errorMessage = 'No response from server. Please check your network connection.';
+      }
+      
+      setError(errorMessage);
+      return [];
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Refetch files when backendUrl changes
   useEffect(() => {
-    fetchFiles();
-  }, []);
+    if (backendUrl) {
+      fetchFiles();
+    }
+  }, [backendUrl]);
 
   // Notify parent component when selected files change
   useEffect(() => {
@@ -36,39 +96,61 @@ const FileList = forwardRef(({ onSelectedFilesChange }, ref) => {
       const selectedFilesList = files.filter(file => selectedFiles.has(file.id));
       onSelectedFilesChange(selectedFilesList);
     }
-  }, [selectedFiles, files, onSelectedFilesChange]);
+  }, [selectedFiles, files]);
+
+  const handleUpload = async (acceptedFiles) => {
+    if (!backendUrl) {
+      setError('Cannot upload: Backend service not discovered yet');
+      return;
+    }
+    
+    setUploading(true);
+    setError(null);
+    
+    try {
+      const formData = new FormData();
+      acceptedFiles.forEach(file => {
+        formData.append('file', file);
+      });
+      
+      const response = await axios.post(`${backendUrl}/api/file/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      console.log('Upload response:', response.data);
+      
+      // Refresh the file list after upload
+      await fetchFiles();
+      
+      // Notify parent component if callback provided
+      if (onFileUploadComplete) {
+        onFileUploadComplete(response.data);
+      }
+    } catch (err) {
+      console.error('Error uploading files:', err);
+      let errorMessage = 'Failed to upload files';
+      
+      if (err.response) {
+        errorMessage = `Server error: ${err.response.status} - ${err.response.data?.error || 'Unknown error'}`;
+      } else if (err.request) {
+        errorMessage = 'No response from server. Please check your network connection.';
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: async (acceptedFiles) => {
-      const file = acceptedFiles[0];
-      if (file) {
-        setUploading(true);
-        setError(null);
-        
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        try {
-          await axios.post('http://localhost:3001/api/file/upload', formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            }
-          });
-          
-          await fetchFiles(); // Refresh the file list
-        } catch (err) {
-          console.error('Upload error:', err);
-          setError('Failed to upload file');
-        } finally {
-          setUploading(false);
-        }
-      }
-    }
+    onDrop: handleUpload
   });
 
   const handleDelete = async (fileId) => {
     try {
-      await axios.delete(`http://localhost:3001/api/file/${fileId}`);
+      await axios.delete(`${backendUrl}/api/file/${fileId}`);
       setSelectedFiles(prev => {
         const newSet = new Set(prev);
         newSet.delete(fileId);
@@ -106,84 +188,95 @@ const FileList = forwardRef(({ onSelectedFilesChange }, ref) => {
   };
 
   return (
-    <div className="border rounded p-4 bg-white">
-      <h2 className="font-bold mb-4">Files</h2>
-      
-      {/* Upload area */}
-      <div
-        {...getRootProps()}
-        className={`p-4 border-2 border-dashed rounded cursor-pointer mb-4 transition-colors ${
-          isDragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-        }`}
-      >
-        <input {...getInputProps()} />
-        <p className="text-center text-gray-600">
-          {uploading ? 'Uploading...' : 'Drag and drop a file here, or click to select one'}
-        </p>
+    <div className="h-full flex flex-col">
+      <div className="p-4 bg-white">
+        <h2 className="font-bold mb-4">Files</h2>
+        
+        {/* Upload area */}
+        <div
+          {...getRootProps()}
+          className={`p-4 border-2 border-dashed rounded cursor-pointer mb-4 transition-colors ${
+            isDragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+          }`}
+        >
+          <input {...getInputProps()} />
+          <p className="text-center text-gray-600">
+            {uploading ? 'Uploading...' : 'Drag and drop a file here, or click to select one'}
+          </p>
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded">
+            {error}
+          </div>
+        )}
       </div>
 
-      {/* Error message */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded">
-          {error}
-        </div>
-      )}
-
-      {/* File list */}
-      <div className="space-y-2 max-h-96 overflow-y-auto">
-        {files.length === 0 ? (
+      {/* File list - Now scrollable */}
+      <div className="overflow-y-auto flex-1 p-4 bg-white">
+        {loading ? (
+          <div className="flex justify-center items-center h-full">
+            <div className="animate-pulse text-center">
+              <div className="h-4 w-32 bg-gray-200 mb-2 mx-auto rounded"></div>
+              <p className="text-gray-500">Loading files...</p>
+            </div>
+          </div>
+        ) : files.length === 0 ? (
           <p className="text-gray-500 text-center py-4">No files uploaded yet</p>
         ) : (
-          files.map((file) => (
-            <div
-              key={file.id}
-              className={`p-3 rounded border transition-colors ${
-                selectedFiles.has(file.id)
-                  ? 'bg-blue-50 border-blue-200'
-                  : 'bg-gray-50 border-gray-200'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedFiles.has(file.id)}
-                      onChange={() => toggleFileSelection(file.id)}
-                      className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                    />
-                    <p className="font-medium truncate" title={file.filename}>
-                      {file.filename}
-                    </p>
+          <div className="space-y-2">
+            {files.map((file) => (
+              <div
+                key={file.id}
+                className={`p-3 rounded border transition-colors ${
+                  selectedFiles.has(file.id)
+                    ? 'bg-blue-50 border-blue-200'
+                    : 'bg-gray-50 border-gray-200'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedFiles.has(file.id)}
+                        onChange={() => toggleFileSelection(file.id)}
+                        className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                      />
+                      <p className="font-medium truncate" title={file.filename}>
+                        {file.filename}
+                      </p>
+                    </div>
+                    <div className="text-sm text-gray-500 space-y-1 mt-1">
+                      <p>Type: {file.type || 'Unknown'}</p>
+                      <p>Size: {formatFileSize(file.size)}</p>
+                      <p>Uploaded: {formatDate(file.uploadDate)}</p>
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-500 space-y-1 mt-1">
-                    <p>Type: {file.type || 'Unknown'}</p>
-                    <p>Size: {formatFileSize(file.size)}</p>
-                    <p>Uploaded: {formatDate(file.uploadDate)}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleDelete(file.id)}
-                  className="ml-4 p-2 text-red-600 hover:text-red-800 focus:outline-none"
-                  title="Delete file"
-                >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+                  <button
+                    onClick={() => handleDelete(file.id)}
+                    className="ml-4 p-2 text-red-600 hover:text-red-800 focus:outline-none"
+                    title="Delete file"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
     </div>

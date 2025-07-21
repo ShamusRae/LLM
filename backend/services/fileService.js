@@ -7,13 +7,33 @@ const pdf = require('pdf-parse');
 const axios = require('axios');
 const crypto = require('crypto');
 
-const UPLOAD_DIR = path.join(__dirname, '../../storage/uploads');
-const MARKDOWN_DIR = path.join(__dirname, '../../storage/markdown');
+// Updated storage paths to use absolute paths relative to project root
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const STORAGE_DIR = path.join(PROJECT_ROOT, 'storage');
+const UPLOAD_DIR = path.join(STORAGE_DIR, 'uploads');
+const MARKDOWN_DIR = path.join(STORAGE_DIR, 'markdown');
+
+// Log all directory paths for debugging
+console.log('FileService initialized with paths:', {
+  cwd: process.cwd(),
+  PROJECT_ROOT,
+  STORAGE_DIR,
+  UPLOAD_DIR,
+  MARKDOWN_DIR
+});
 
 // Ensure directories exist
-[UPLOAD_DIR, MARKDOWN_DIR].forEach(dir => {
+[STORAGE_DIR, UPLOAD_DIR, MARKDOWN_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    try {
+      console.log(`Creating directory: ${dir}`);
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`Directory created: ${dir} (exists: ${fs.existsSync(dir)})`);
+    } catch (err) {
+      console.error(`Failed to create directory ${dir}:`, err);
+    }
+  } else {
+    console.log(`Directory exists: ${dir}`);
   }
 });
 
@@ -253,27 +273,105 @@ const processUploadedFile = async (file) => {
     throw new Error('No file provided');
   }
 
+  console.log('Processing uploaded file:', {
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+    size: file.size,
+    path: file.path,
+    exists: fs.existsSync(file.path)
+  });
+
+  // Ensure directories exist
+  [STORAGE_DIR, UPLOAD_DIR, MARKDOWN_DIR].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      console.log(`Creating directory: ${dir}`);
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  });
+
+  // Generate a unique ID for the file
   const fileId = generateUniqueId(file.originalname);
   const originalExt = path.extname(file.originalname);
   const newFilename = `${fileId}${originalExt}`;
   const newPath = path.join(UPLOAD_DIR, newFilename);
 
-  // Move file to uploads directory
-  fs.renameSync(file.path, newPath);
+  // Log file paths
+  console.log('File paths:', {
+    originalPath: file.path,
+    newPath,
+    uploadDir: UPLOAD_DIR,
+    originalPathExists: fs.existsSync(file.path),
+    targetDirExists: fs.existsSync(UPLOAD_DIR)
+  });
+  
+  // Ensure upload directory exists one more time
+  if (!fs.existsSync(UPLOAD_DIR)) {
+    console.log(`Creating upload directory: ${UPLOAD_DIR}`);
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
+
+  // Move file to uploads directory with robust error handling
+  try {
+    // Check if file exists at the original path
+    if (!fs.existsSync(file.path)) {
+      console.error(`File not found at path: ${file.path}`);
+      throw new Error(`File not found at path: ${file.path}`);
+    }
+    
+    // Copy file to new location
+    console.log(`Copying file from ${file.path} to ${newPath}`);
+    fs.copyFileSync(file.path, newPath);
+    console.log(`File copied successfully. Deleting original...`);
+    
+    // Delete the original file after copying
+    try {
+      fs.unlinkSync(file.path);
+      console.log(`Original file deleted`);
+    } catch (unlinkError) {
+      console.warn(`Could not delete original file: ${unlinkError.message}`);
+      // Continue processing - not a fatal error
+    }
+  } catch (error) {
+    console.error('Error moving file:', error);
+    
+    // Try an alternative method if the copy fails
+    try {
+      console.log(`Attempting alternative copy method...`);
+      const fileContent = fs.readFileSync(file.path);
+      fs.writeFileSync(newPath, fileContent);
+      console.log(`File copied (alternative method) to: ${newPath}`);
+    } catch (altError) {
+      console.error('Alternative file copy also failed:', altError);
+      throw new Error(`Failed to save file: ${altError.message}`);
+    }
+  }
+
+  // Verify the new file exists
+  if (!fs.existsSync(newPath)) {
+    console.error(`File copy verification failed. File not found at ${newPath}`);
+    throw new Error(`File copy failed: File not found at destination path`);
+  } else {
+    console.log(`File copy verified: ${newPath} exists`);
+  }
 
   // For CSV files, read raw content first for type detection
   let rawContent = '';
   if (originalExt.toLowerCase() === '.csv') {
     try {
       rawContent = fs.readFileSync(newPath, 'utf8');
-      console.log('Raw CSV content for type detection:', rawContent.slice(0, 500));
+      console.log('Raw CSV content for type detection:', rawContent.slice(0, 200));
     } catch (error) {
       console.error('Error reading raw CSV content:', error);
     }
   }
 
   // Convert to markdown
-  const markdownContent = await convertToMarkdown({ ...file, path: newPath });
+  console.log(`Converting file to markdown: ${newPath}`);
+  const markdownContent = await convertToMarkdown({ 
+    ...file, 
+    path: newPath, 
+    originalname: file.originalname 
+  });
   
   // Get file type based on extension and content
   const fileType = getFileType(file, rawContent || markdownContent);
@@ -283,10 +381,15 @@ const processUploadedFile = async (file) => {
   let finalType = fileType;
   if (fileType === 'Unknown Document' || fileType.endsWith('File')) {
     console.log('Attempting LLM classification...');
-    const classifiedType = await classifyFileContent(rawContent || markdownContent);
-    if (classifiedType !== 'Unclassified') {
-      finalType = classifiedType;
-      console.log('LLM classified as:', finalType);
+    try {
+      const classifiedType = await classifyFileContent(rawContent || markdownContent);
+      if (classifiedType !== 'Unclassified') {
+        finalType = classifiedType;
+        console.log('LLM classified as:', finalType);
+      }
+    } catch (classifyError) {
+      console.error('Error during LLM classification:', classifyError);
+      // Continue with the original file type
     }
   }
 
@@ -300,70 +403,135 @@ Upload Date: ${new Date().toISOString()}
 ${markdownContent}`;
 
   const markdownPath = path.join(MARKDOWN_DIR, `${fileId}.md`);
+  
+  // Ensure markdown directory exists
+  if (!fs.existsSync(MARKDOWN_DIR)) {
+    console.log(`Creating markdown directory: ${MARKDOWN_DIR}`);
+    fs.mkdirSync(MARKDOWN_DIR, { recursive: true });
+  }
+  
+  // Write markdown content
   fs.writeFileSync(markdownPath, markdownWithMetadata);
+  console.log(`Markdown file created at: ${markdownPath}`);
 
   // Get file stats
   const stats = fs.statSync(newPath);
 
+  // Return file details
+  console.log(`File processing complete. Returning file details for ${fileId}`);
   return {
     id: fileId,
-    originalName: file.originalname,
-    filename: file.originalname,
+    originalname: file.originalname,
+    filename: newFilename,  // Return the actual filename saved in the directory
     path: newPath,
     markdownPath,
     size: stats.size,
-    type: finalType,
-    uploadDate: new Date(),
-    mimeType: file.mimetype
+    type: file.mimetype,
+    uploadDate: new Date().toISOString(),
+    mimeType: file.mimetype,
+    fileType: finalType // The classified document type (e.g., "Invoice", "PDF Document")
   };
 };
 
 const listFiles = () => {
-  if (!fs.existsSync(UPLOAD_DIR)) {
+  try {
+    console.log(`Listing files from: ${UPLOAD_DIR}`);
+    
+    if (!fs.existsSync(UPLOAD_DIR)) {
+      console.error(`Upload directory does not exist: ${UPLOAD_DIR}`);
+      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+      return [];
+    }
+
+    // List all files in the directory
+    const fileEntries = fs.readdirSync(UPLOAD_DIR);
+    console.log(`Found ${fileEntries.length} entries in directory`);
+    
+    // Process each file
+    const files = fileEntries
+      .filter(file => {
+        try {
+          const filePath = path.join(UPLOAD_DIR, file);
+          const isFile = fs.statSync(filePath).isFile();
+          if (!isFile) console.log(`Skipping non-file: ${file}`);
+          return isFile;
+        } catch (err) {
+          console.error(`Error checking file ${file}:`, err);
+          return false;
+        }
+      })
+      .map(file => {
+        try {
+          const filePath = path.join(UPLOAD_DIR, file);
+          const stats = fs.statSync(filePath);
+          const fileId = path.parse(file).name;
+          const markdownPath = path.join(MARKDOWN_DIR, `${fileId}.md`);
+          
+          let type = 'Unknown Document';
+          let originalName = file;
+          let mimetype = '';
+          
+          // Log file info for debugging
+          console.log(`Processing file: ${file} (size: ${stats.size} bytes)`);
+          
+          // Try to determine MIME type from file extension
+          const ext = path.extname(file).toLowerCase();
+          switch (ext) {
+            case '.pdf': mimetype = 'application/pdf'; break;
+            case '.docx': mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; break;
+            case '.xlsx': mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; break;
+            case '.csv': mimetype = 'text/csv'; break;
+            case '.txt': mimetype = 'text/plain'; break;
+            case '.md': mimetype = 'text/markdown'; break;
+            default: mimetype = 'application/octet-stream';
+          }
+          
+          // Try to read metadata from markdown file
+          if (fs.existsSync(markdownPath)) {
+            try {
+              console.log(`Found matching markdown file: ${markdownPath}`);
+              const mdContent = fs.readFileSync(markdownPath, 'utf8');
+              const typeMatch = mdContent.match(/Type:\s*([^\n]+)/);
+              const nameMatch = mdContent.match(/Original Name:\s*([^\n]+)/);
+              
+              if (typeMatch) {
+                type = typeMatch[1].trim();
+                console.log(`Detected type from markdown: ${type}`);
+              }
+              if (nameMatch) {
+                originalName = nameMatch[1].trim();
+                console.log(`Detected original name from markdown: ${originalName}`);
+              }
+            } catch (err) {
+              console.error(`Error reading markdown metadata for ${file}:`, err);
+            }
+          } else {
+            console.log(`No matching markdown file found for: ${file}`);
+          }
+
+          return {
+            id: fileId,
+            filename: file, // Use actual filename for storage
+            originalname: originalName, // Use for display
+            path: filePath,
+            size: stats.size,
+            type: type, // Document type (e.g., "Invoice", "Contract")
+            uploadDate: stats.mtime,
+            mimetype: mimetype // MIME type (e.g., "application/pdf")
+          };
+        } catch (err) {
+          console.error(`Error processing file ${file}:`, err);
+          return null;
+        }
+      })
+      .filter(file => file !== null);
+
+    console.log(`Successfully listed ${files.length} files from ${UPLOAD_DIR}`);
+    return files;
+  } catch (err) {
+    console.error('Error listing files:', err);
     return [];
   }
-
-  return fs.readdirSync(UPLOAD_DIR)
-    .filter(file => {
-      const filePath = path.join(UPLOAD_DIR, file);
-      return fs.statSync(filePath).isFile();
-    })
-    .map(file => {
-      const filePath = path.join(UPLOAD_DIR, file);
-      const stats = fs.statSync(filePath);
-      const fileId = path.parse(file).name;
-      const markdownPath = path.join(MARKDOWN_DIR, `${fileId}.md`);
-      
-      let type = 'Unknown Document';
-      let originalName = file;
-      
-      // Try to read metadata from markdown file
-      if (fs.existsSync(markdownPath)) {
-        try {
-          const mdContent = fs.readFileSync(markdownPath, 'utf8');
-          const typeMatch = mdContent.match(/Type:\s*([^\n]+)/);
-          const nameMatch = mdContent.match(/Original Name:\s*([^\n]+)/);
-          
-          if (typeMatch) {
-            type = typeMatch[1].trim();
-          }
-          if (nameMatch) {
-            originalName = nameMatch[1].trim();
-          }
-        } catch (err) {
-          console.error('Error reading markdown metadata:', err);
-        }
-      }
-
-      return {
-        id: fileId,
-        filename: originalName,
-        path: filePath,
-        size: stats.size,
-        type,
-        uploadDate: stats.mtime
-      };
-    });
 };
 
 const deleteFile = (fileId) => {
@@ -494,10 +662,245 @@ ${markdownContent}`;
   };
 };
 
+/**
+ * Downloads and processes a file from a URL
+ * @param {Object} options - File download options
+ * @param {string} options.url - URL to download file from
+ * @param {string} options.fileName - Suggested filename
+ * @param {string} options.fileType - Type of file (PDF, Excel, etc.)
+ * @param {string} options.description - Optional description of the file
+ * @returns {Promise<Object>} Processed file data
+ */
+const processFileFromUrl = async (options) => {
+  if (!options || !options.url) {
+    throw new Error('URL is required for file download');
+  }
+
+  console.log(`Downloading file from URL: ${options.url}`);
+  
+  try {
+    // Download the file from the URL
+    const response = await axios.get(options.url, {
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    
+    // Determine filename and content type
+    const contentType = response.headers['content-type'] || 'application/octet-stream';
+    const fileName = options.fileName || getFileNameFromUrl(options.url, contentType);
+    
+    // Create a temporary file
+    const tempFilePath = path.join(UPLOAD_DIR, `temp-${Date.now()}`);
+    fs.writeFileSync(tempFilePath, response.data);
+    
+    // Create file object similar to what multer would provide
+    const file = {
+      originalname: fileName,
+      path: tempFilePath,
+      size: response.data.length,
+      mimetype: contentType
+    };
+    
+    // Process the file as a regular upload
+    const result = await processUploadedFile(file);
+    
+    // Add additional metadata if provided
+    if (options.description) {
+      // Update the markdown file with the description
+      const markdownPath = path.join(MARKDOWN_DIR, `${result.id}.md`);
+      let markdownContent = fs.readFileSync(markdownPath, 'utf8');
+      
+      // Add description to metadata
+      markdownContent = markdownContent.replace('---', `---\nDescription: ${options.description}`);
+      
+      fs.writeFileSync(markdownPath, markdownContent);
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('Error downloading or processing file from URL:', error);
+    throw new Error(`Failed to download file: ${error.message}`);
+  }
+};
+
+/**
+ * Extract filename from URL or content type
+ */
+const getFileNameFromUrl = (url, contentType) => {
+  // Try to get filename from URL
+  const urlParts = url.split('/');
+  let fileName = urlParts[urlParts.length - 1];
+  
+  // Remove query parameters if any
+  if (fileName.includes('?')) {
+    fileName = fileName.split('?')[0];
+  }
+  
+  // If no filename or it's empty, generate one based on content type
+  if (!fileName || fileName === '') {
+    const extension = contentTypeToExtension(contentType);
+    fileName = `file-${Date.now()}${extension}`;
+  }
+  
+  return fileName;
+};
+
+/**
+ * Convert content type to file extension
+ */
+const contentTypeToExtension = (contentType) => {
+  const map = {
+    'application/pdf': '.pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'text/csv': '.csv',
+    'text/plain': '.txt',
+    'text/markdown': '.md',
+    'application/json': '.json',
+    'text/html': '.html'
+  };
+  
+  return map[contentType] || '.bin';
+};
+
+// Add the processFileWithMarkItDown method
+const processFileWithMarkItDown = async (file, options = {}) => {
+  console.log(`Starting MarkItDown processing for file ${file.id} (${file.filename || file.originalname})`);
+  
+  try {
+    // Check if we have a filename or need to use the original name
+    const actualFilename = file.filename || file.originalname;
+    
+    // Get the file path - try both the direct path and constructing it
+    let filePath = file.path;
+    if (!filePath || !fs.existsSync(filePath)) {
+      filePath = path.join(UPLOAD_DIR, actualFilename);
+      console.log(`Original path not found, trying: ${filePath}`);
+    }
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      // One more fallback - try to find the file by ID
+      const files = fs.readdirSync(UPLOAD_DIR);
+      const matchingFile = files.find(f => f.startsWith(file.id));
+      if (matchingFile) {
+        filePath = path.join(UPLOAD_DIR, matchingFile);
+        console.log(`Found file by ID match: ${filePath}`);
+      } else {
+        throw new Error(`File not found at path: ${filePath} or by ID: ${file.id}`);
+      }
+    }
+    
+    console.log(`Processing file from path: ${filePath}`);
+    
+    // Get the original file stats
+    const originalStats = fs.statSync(filePath);
+    console.log(`Original file size: ${originalStats.size} bytes`);
+    
+    // Convert to markdown with robust error handling
+    let markdownContent;
+    try {
+      markdownContent = await convertToMarkdown({
+        path: filePath,
+        originalname: actualFilename,
+        mimetype: file.type || file.mimeType
+      });
+      console.log(`Converted to markdown: ${markdownContent.length} characters`);
+    } catch (conversionError) {
+      console.error(`Error converting file to markdown:`, conversionError);
+      // Provide a fallback content so we can continue
+      markdownContent = `Error converting file: ${conversionError.message}\n\nThis file could not be automatically converted to markdown.`;
+    }
+    
+    // Generate unique ID for the markdown file
+    const markdownId = generateUniqueId(`${actualFilename}-markdown`);
+    const markdownFileName = `${markdownId}.md`;
+    const markdownPath = path.join(MARKDOWN_DIR, markdownFileName);
+    
+    // Ensure markdown directory exists
+    if (!fs.existsSync(MARKDOWN_DIR)) {
+      fs.mkdirSync(MARKDOWN_DIR, { recursive: true });
+      console.log(`Created markdown directory: ${MARKDOWN_DIR}`);
+    }
+    
+    // Save markdown content to a file
+    fs.writeFileSync(markdownPath, markdownContent);
+    console.log(`Saved markdown to: ${markdownPath}`);
+    
+    // Get file stats
+    const stats = fs.statSync(markdownPath);
+    
+    // Create processed file record
+    const processedFile = {
+      id: markdownId,
+      filename: markdownFileName,
+      originalFilename: `${actualFilename}.md`,
+      type: 'text/markdown',
+      size: stats.size,
+      uploadDate: new Date().toISOString(),
+      path: markdownPath,
+      originalFileId: file.id,
+      content: options.extractAll ? markdownContent : markdownContent.substring(0, 1000),
+      contentSummary: markdownContent.substring(0, 300)
+    };
+    
+    // Classify content if needed
+    if (options.classify) {
+      try {
+        processedFile.classification = await classifyFileContent(markdownContent);
+        console.log(`Classified as: ${processedFile.classification}`);
+      } catch (classifyError) {
+        console.error(`Error classifying content:`, classifyError);
+        processedFile.classification = 'Unclassified';
+      }
+    }
+    
+    return processedFile;
+  } catch (error) {
+    console.error(`Error processing file with MarkItDown: ${error.message}`, error);
+    throw error;
+  }
+};
+
+// Add the getFileById method
+const getFileById = (fileId) => {
+  try {
+    const files = listFiles();
+    return files.find(file => file.id === fileId);
+  } catch (error) {
+    console.error(`Error finding file by ID (${fileId}): ${error.message}`);
+    return null;
+  }
+};
+
+// Add a method to get the upload directory
+const getUploadDirectory = () => {
+  // Ensure the directory exists before returning
+  if (!fs.existsSync(UPLOAD_DIR)) {
+    try {
+      console.log(`Creating upload directory: ${UPLOAD_DIR}`);
+      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    } catch (err) {
+      console.error(`Failed to create upload directory: ${UPLOAD_DIR}`, err);
+    }
+  }
+  
+  return UPLOAD_DIR;
+};
+
+// Export all methods
 module.exports = {
   processUploadedFile,
+  processFileFromUrl,
   listFiles,
   deleteFile,
   createFileFromExternalSource,
-  getFileMarkdownContent
+  getFileMarkdownContent,
+  getFileNameFromUrl,
+  contentTypeToExtension,
+  getFileById,
+  processFileWithMarkItDown,
+  getUploadDirectory
 }; 

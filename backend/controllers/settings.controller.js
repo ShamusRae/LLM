@@ -70,15 +70,48 @@ exports.updateSettings = async (req, res) => {
       ...existingSettings,
       ...req.body,
       // Preserve arrays if they exist in current settings but not in new settings
-      avatars: existingSettings.avatars || [],
+      avatars: req.body.avatars || existingSettings.avatars || [],
       memory: req.body.memory || existingSettings.memory || []
     };
     
-    await fs.writeFile(settingsPath, JSON.stringify(newSettings, null, 2));
-    res.json({ message: 'Settings updated successfully' });
+    // Write to temporary file first
+    const tempPath = settingsPath + '.temp';
+    await fs.writeFile(tempPath, JSON.stringify(newSettings, null, 2));
+    
+    // Verify the temporary file was written correctly
+    try {
+      const verifyContent = await fs.readFile(tempPath, 'utf8');
+      const parsed = JSON.parse(verifyContent);
+      
+      // Specifically verify avatars were saved correctly
+      if (!parsed.avatars || !Array.isArray(parsed.avatars)) {
+        throw new Error('Avatar data missing or invalid in temp file');
+      }
+      
+      if (req.body.avatars && req.body.avatars.length !== parsed.avatars.length) {
+        throw new Error(`Avatar count mismatch: expected ${req.body.avatars.length}, got ${parsed.avatars.length}`);
+      }
+    } catch (verifyError) {
+      console.error('Verification failed:', verifyError);
+      throw new Error(`Failed to verify settings: ${verifyError.message}`);
+    }
+    
+    // Replace the original file with the temporary one
+    await fs.rename(tempPath, settingsPath);
+    
+    // Confirm the settings were saved properly
+    const finalSettings = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
+    
+    res.json({ 
+      message: 'Settings updated successfully',
+      avatarCount: finalSettings.avatars ? finalSettings.avatars.length : 0
+    });
   } catch (error) {
     console.error('Error updating settings:', error);
-    res.status(500).json({ error: 'Failed to update settings' });
+    res.status(500).json({ 
+      error: 'Failed to update settings',
+      message: error.message
+    });
   }
 };
 

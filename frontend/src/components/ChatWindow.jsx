@@ -3,8 +3,11 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import axios from 'axios';
 import ChartComponent from './Chart';
-import MessageContent from './MessageContent.tsx';
+import MessageContent from './MessageContent';
 import MCPToolUsage from './MCPToolUsage';
+import remarkGfm from 'remark-gfm';
+import AdaLovelaceAgent from './AdaLovelaceAgent';
+import ChatInput from './ChatInput';
 
 const CopyButton = ({ text }) => {
   const [copied, setCopied] = useState(false);
@@ -29,8 +32,9 @@ const CopyButton = ({ text }) => {
   );
 };
 
-const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
+const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage }) => {
   const [expandedThinking, setExpandedThinking] = useState({});
+  const [isAvatarThinking, setIsAvatarThinking] = useState(false);
   const messagesEndRef = useRef(null);
   const [userDetails, setUserDetails] = useState({
     name: '',
@@ -39,37 +43,44 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
   const [renderedMessages, setRenderedMessages] = useState([]);
 
   useEffect(() => {
-    console.log('ChatWindow received messages:', messages.map(m => ({
-      id: m.id,
-      sessionId: m.sessionId,
-      isUser: m.metadata.isUser,
-      avatarId: m.metadata.avatar?.id,
-      round: m.round,
-      state: m.state.type,
-      contentLength: m.content.text?.length,
-      preview: m.content.text?.substring(0, 50)
-    })));
+    // Filter messages for current session and remove thinking messages that have been completed
+    const currentSessionMessages = messages.filter(message => {
+      if (!message.sessionId || message.sessionId === sessionId) {
+        // If this message is complete, remove any thinking message with the same round
+        if (message.state?.type !== 'thinking') {
+          const hasThinkingVersion = renderedMessages.some(m => 
+            m.round === message.round && 
+            m.state?.type === 'thinking' &&
+            m.metadata?.isUser === message.metadata?.isUser
+          );
+          if (hasThinkingVersion) {
+            return false;
+          }
+        }
+        return true;
+      }
+      return false;
+    });
 
-    // Filter messages for current session
-    const currentSessionMessages = messages.filter(message => 
-      !message.sessionId || // Include messages without sessionId for backward compatibility
-      message.sessionId === sessionId
+    // Check if any avatar is currently thinking
+    const hasThinkingMessages = currentSessionMessages.some(message => 
+      message.state?.type === 'thinking' || 
+      message.isThinking || 
+      message.usingTool
     );
+    setIsAvatarThinking(hasThinkingMessages);
 
-    // Ensure messages have unique IDs by adding a suffix if duplicates are found
+    // Ensure messages have unique IDs
     const uniqueMessages = [];
     const seenIds = new Set();
     
     currentSessionMessages.forEach(message => {
       if (!message.id) {
-        // Generate an ID if it doesn't exist
         message = { ...message, id: Date.now() + "-" + Math.random().toString(36).substring(2, 9) };
       }
       
       if (seenIds.has(message.id)) {
-        // Create a new unique ID by adding a suffix
         const newId = `${message.id}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
-        console.warn(`Duplicate message ID found: ${message.id}, creating new ID: ${newId}`);
         uniqueMessages.push({ ...message, id: newId });
       } else {
         seenIds.add(message.id);
@@ -79,51 +90,42 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
 
     // Sort messages by timestamp
     uniqueMessages.sort((a, b) => {
-      // If timestamps are available, use them
       if (a.timestamp && b.timestamp) {
         return a.timestamp - b.timestamp;
       }
-      // Otherwise maintain the original order
       return currentSessionMessages.indexOf(a) - currentSessionMessages.indexOf(b);
     });
     
     setRenderedMessages(uniqueMessages);
-    
-    console.log(`Filtered messages for session: ${sessionId}, total: ${messages.length}, filtered: ${uniqueMessages.length}, thinking: ${uniqueMessages.filter(m => m.thinking).length}, streaming: ${uniqueMessages.filter(m => m.streaming).length}`);
   }, [messages, sessionId]);
 
+  // Simple scroll to bottom for new messages
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Enhanced scrolling - watches not just for new messages but also message state changes
-  useEffect(() => {
-    // Delayed scroll to ensure rendering is complete
-    const timeoutId = setTimeout(() => {
-      scrollToBottom();
-    }, 100);
+  // Check if user is near the bottom of the chat
+  const isUserNearBottom = () => {
+    const container = messagesEndRef.current?.parentElement;
+    if (!container) return true;
     
-    return () => clearTimeout(timeoutId);
-  }, [
-    // Use a stable dependency that captures the same information
-    renderedMessages.length,
-    // Create a string representation of all message states to avoid array size changes
-    renderedMessages.map(m => m.state.type).join(',')
-  ]);
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const threshold = 100; // pixels from bottom
+    return scrollHeight - scrollTop - clientHeight < threshold;
+  };
 
-  // Monitor specifically for thinking states
+  // More intelligent scrolling - only scroll when appropriate
   useEffect(() => {
-    const hasThinkingMessage = renderedMessages.some(m => m.state.type === 'thinking');
-    const hasStreamingMessage = renderedMessages.some(m => m.state.type === 'streaming');
-    
-    // If a thinking or streaming message appears, scroll immediately
-    if (hasThinkingMessage || hasStreamingMessage) {
-      scrollToBottom();
+    // Always auto-scroll for new AI responses to ensure they're visible
+    if (renderedMessages.length > 0) {
+      const lastMessage = renderedMessages[renderedMessages.length - 1];
+      const isAIResponse = !lastMessage?.metadata?.isUser;
       
-      // Set up an interval to keep scrolling while in thinking/streaming state
-      const intervalId = setInterval(scrollToBottom, 500);
-      
-      return () => clearInterval(intervalId);
+      // Auto-scroll if it's an AI response OR user is near bottom
+      if (isAIResponse || isUserNearBottom()) {
+        const timeoutId = setTimeout(scrollToBottom, 200);
+        return () => clearTimeout(timeoutId);
+      }
     }
   }, [renderedMessages]);
 
@@ -134,10 +136,9 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
   };
 
   const handleImageError = (e, avatarName) => {
-    console.error(`Failed to load avatar image for ${avatarName}`);
-    e.target.onerror = null; // Prevent infinite error loop
+    e.target.onerror = null;
     e.target.style.display = 'none';
-    e.target.nextElementSibling.style.display = 'flex';
+    e.target.parentElement.textContent = avatarName?.[0] || 'A';
   };
 
   // Helper function to generate a random color for the avatar background
@@ -149,15 +150,13 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
   // Helper function to get contrasting text color
   const getTextColor = () => 'FFFFFF';
 
+  // Load user details
   useEffect(() => {
-    // Load user details when component mounts
     const loadUserDetails = async () => {
       try {
         const response = await axios.get('/api/settings');
-        // Only set the imageUrl if it's a valid URL or path
         const imageUrl = response.data?.userDetails?.imageUrl;
         setUserDetails(prev => {
-          // Only update if the values have changed
           if (prev.name !== (response.data?.userDetails?.name || '') ||
               prev.imageUrl !== (imageUrl && imageUrl !== 'null' ? imageUrl : null)) {
             return {
@@ -169,15 +168,10 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
         });
       } catch (err) {
         console.error('Error loading user details:', err);
-        // Only set default values if we don't already have values
-        setUserDetails(prev => {
-          if (prev.name || prev.imageUrl) return prev;
-          return { name: '', imageUrl: null };
-        });
       }
     };
     loadUserDetails();
-  }, []); // Empty dependency array since we only want to load on mount
+  }, []);
 
   const toggleThinking = (messageId) => {
     setExpandedThinking(prev => ({
@@ -797,7 +791,7 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
 
   // Find the renderMessageContent function and replace it with:
   const renderMessageContent = (message) => {
-    const { content, thinking, thinkingContent, isThinking, showThinking, usingTool } = message;
+    const { content, thinking, thinkingContent, isThinking, showThinking, usingTool, isStreaming } = message;
     // Extract downloadedFiles from message metadata if present
     const downloadedFiles = message.metadata?.downloadedFiles;
 
@@ -823,98 +817,132 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId }) => {
       );
     }
 
-    if (!content.text) {
-      console.log('Attempted to render null/undefined message text');
-      return null;
+    if (!content || !content.text) {
+      console.log('Attempted to render null/undefined message content or text');
+      return <div className="message-content text-gray-500 italic">No content available</div>;
     }
 
     const blocks = parseContentToBlocks(content.text);
-    // Pass downloadedFiles to MessageContent component if present
-    return <MessageContent blocks={blocks} downloadedFiles={downloadedFiles} />;
+    // Pass isStreaming status to MessageContent component
+    return <MessageContent blocks={blocks} downloadedFiles={downloadedFiles} isStreaming={!!isStreaming} />;
+  };
+
+  const renderAvatar = (message) => {
+    const isUser = message.metadata?.isUser || false;
+    const avatar = message.metadata?.avatar;
+
+    if (isUser) {
+      return (
+        <div className="avatar">
+          <img 
+            src={userDetails?.imageUrl || '/default-avatar.png'} 
+            alt="User"
+            className="w-8 h-8 rounded-full"
+            onError={(e) => handleImageError(e, 'U')}
+          />
+        </div>
+      );
+    }
+
+    if (!avatar) return null;
+
+    return (
+      <div className="avatar">
+        {avatar.imageUrl ? (
+          <img 
+            src={getAvatarImageUrl(avatar.imageUrl)} 
+            alt={avatar.name}
+            className="w-8 h-8 rounded-full" 
+            onError={(e) => handleImageError(e, avatar.name)}
+          />
+        ) : (
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${getAvatarColor(false)}`}>
+            {getInitials(avatar.name)}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
     <div className="bg-white rounded-lg border shadow-sm p-4 space-y-4 min-h-[500px] max-h-[800px] overflow-y-auto">
+      {/* Global Thinking Indicator */}
+      {isAvatarThinking && (
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-3 mb-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex space-x-1">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            </div>
+            <span className="text-sm font-medium text-gray-700">
+              🤖 Avatar is thinking...
+            </span>
+          </div>
+        </div>
+      )}
+      
       {renderedMessages.map((message) => {
-        console.log('Rendering message:', {
-          id: message.id,
-          isUser: message.metadata.isUser,
-          avatarId: message.metadata.avatar?.id,
-          state: message.state.type,
-          contentLength: message.content.text?.length,
-          preview: message.content.text?.substring(0, 50)
-        });
-
-        const containerClasses = message.metadata.isUser
-          ? 'flex-row-reverse'
-          : 'flex-row';
-
-        const messageClasses = message.metadata.isUser
+        // Ensure message has proper metadata structure
+        if (!message.metadata) {
+          message.metadata = { isUser: false, isError: false };
+        }
+        if (!message.state) {
+          message.state = { type: 'complete' };
+        }
+        if (!message.content) {
+          message.content = { text: message.text || 'No content' };
+        }
+        
+        const containerClasses = message.metadata?.isUser ? 'flex-row-reverse' : 'flex-row';
+        const messageClasses = message.metadata?.isUser
           ? 'bg-blue-100 text-blue-800'
-          : message.metadata.isError
+          : message.metadata?.isError
             ? 'bg-red-100 border border-red-300 text-red-700'
-            : message.state.type === 'thinking'
-              ? 'bg-yellow-50 border border-yellow-200 text-yellow-800'
-              : message.state.type === 'streaming'
-                ? 'bg-green-50 border border-green-200 text-green-800'
-                : 'bg-gray-100 text-gray-700';
+            : message.state?.type === 'thinking'
+              ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 text-yellow-900 shadow-md'
+              : 'bg-gray-100 text-gray-700';
 
         return (
           <div 
             key={message.id} 
             className={`mb-4 flex items-start gap-2 ${containerClasses}`}
-            id={`message-${message.id}`}
           >
-            {!message.metadata.isUser && message.metadata.avatar && (
-              <div className="flex-shrink-0">
-                {message.metadata.avatar.imageUrl ? (
-                  <img 
-                    src={getAvatarImageUrl(message.metadata.avatar.imageUrl)} 
-                    alt={message.metadata.avatar.name} 
-                    className="w-8 h-8 rounded-full object-cover" 
-                    title={message.metadata.avatar.name}
-                    onError={(e) => handleImageError(e, message.metadata.avatar.name)}
-                  />
-                ) : (
-                  <div 
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${getAvatarColor(false)}`}
-                    title={message.metadata.avatar.name || 'AI Assistant'}
-                  >
-                    {getInitials(message.metadata.avatar.name)}
+            {!message.metadata?.isUser && renderAvatar(message)}
+            <div className={`p-3 rounded-lg flex-1 max-w-[75%] ${messageClasses}`}>
+              {message.metadata?.isError ? (
+                <p className="text-red-700">{message.content?.text || 'Error occurred'}</p>
+              ) : message.state?.type === 'thinking' ? (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex space-x-1">
+                      <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></div>
+                      <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                      <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                    </div>
+                    <div className="text-sm font-bold text-yellow-800">🧠 Thinking...</div>
                   </div>
-                )}
-              </div>
-            )}
-            <div 
-              className={`p-3 rounded-lg ${messageClasses} ${
-                message.state.type === 'thinking' || message.state.type === 'streaming' 
-                  ? 'w-full md:max-w-[85%]' // Wider for thinking/streaming states
-                  : 'w-full md:max-w-[75%]' // Normal width for complete messages
-              }`}
-            >
-              {message.metadata.isError ? (
-                <p className="text-red-700">{message.content.text}</p>
-              ) : message.state.type === 'thinking' ? (
-                <div className="flex flex-col gap-2 w-full">
-                  <div className="text-sm font-medium">
-                    Thinking...
-                  </div>
-                  <div className="text-sm text-yellow-700">
-                    {message.content.text || "Processing your request..."}
-                  </div>
-                  <div className="animate-pulse flex space-x-2 items-center">
-                    <div className="h-2 w-2 bg-yellow-400 rounded-full"></div>
-                    <div className="h-2 w-2 bg-yellow-400 rounded-full"></div>
-                    <div className="h-2 w-2 bg-yellow-400 rounded-full"></div>
+                  {message.content?.text && (
+                    <div className="text-sm text-yellow-800 italic border-l-2 border-yellow-400 pl-2">
+                      {message.content.text}
+                    </div>
+                  )}
+                  <div className="text-xs text-yellow-600 opacity-75">
+                    Processing your request - please wait...
                   </div>
                 </div>
               ) : (
                 renderMessageContent(message)
               )}
             </div>
+            {message.metadata?.isUser && renderAvatar(message)}
           </div>
         );
       })}
+      <div ref={messagesEndRef} />
+      {/* Add Ada Lovelace Agent integration */}
+      {selectedAvatar === 'ada-lovelace' && <AdaLovelaceAgent />}
+      <ChatInput onSendMessage={onSendMessage} selectedAvatar={selectedAvatar} />
     </div>
   );
 };

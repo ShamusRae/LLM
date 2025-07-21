@@ -31,28 +31,53 @@ router.get('/stream/:sessionId', async (req, res) => {
     res.flushHeaders();
   }
   
-  // Create SSE transport
-  const transport = new SSEServerTransport('/api/mcp/messages', res);
-  
-  // Store the transport with the session ID
-  sseConnections.set(sessionId, transport);
-  
+  // Create SSE transport with additional error handling
   try {
-    // Connect the MCP server to this transport
-    await mcpServer.connect(transport);
+    const transport = new SSEServerTransport('/api/mcp/messages', res);
     
-    // Send initial connection established message
-    res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: Date.now() })}\n\n`);
-  } catch (error) {
-    console.error(`Error connecting MCP server for session ${sessionId}:`, error);
-    res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+    // Store the transport with the session ID
+    sseConnections.set(sessionId, transport);
+    
+    try {
+      // Connect the MCP server to this transport
+      await mcpServer.connect(transport);
+      
+      // Send initial connection established message
+      res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: Date.now() })}\n\n`);
+      
+      // Set up a heartbeat to keep the connection alive
+      const heartbeatInterval = setInterval(() => {
+        try {
+          res.write(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: Date.now() })}\n\n`);
+        } catch (heartbeatError) {
+          console.error(`Heartbeat error for session ${sessionId}:`, heartbeatError);
+          clearInterval(heartbeatInterval);
+        }
+      }, 30000); // Send heartbeat every 30 seconds
+      
+      // Clean up the connection and heartbeat when client disconnects
+      req.on('close', () => {
+        console.log(`MCP SSE connection closed for session: ${sessionId}`);
+        clearInterval(heartbeatInterval);
+        sseConnections.delete(sessionId);
+      });
+      
+      // Handle connection errors
+      req.on('error', (error) => {
+        console.error(`MCP SSE connection error for session ${sessionId}:`, error);
+        clearInterval(heartbeatInterval);
+        sseConnections.delete(sessionId);
+      });
+      
+    } catch (error) {
+      console.error(`Error connecting MCP server for session ${sessionId}:`, error);
+      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+    }
+  } catch (transportError) {
+    console.error(`Error creating SSE transport for session ${sessionId}:`, transportError);
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to establish connection' })}\n\n`);
+    res.end();
   }
-  
-  // Clean up the connection when client disconnects
-  req.on('close', () => {
-    console.log(`MCP SSE connection closed for session: ${sessionId}`);
-    sseConnections.delete(sessionId);
-  });
 });
 
 // Endpoint to receive messages from the client to the MCP server
@@ -125,8 +150,8 @@ router.post('/execute/:toolId', async (req, res) => {
       });
     }
     
-    // Execute tool
-    const result = await mcpServer.executeTool(toolId, params, sessionId);
+    // Execute tool using the correct method name
+    const result = await mcpServer.callToolDirectly(toolId, params);
     res.json(result);
   } catch (error) {
     console.error(`Error executing tool ${toolId}:`, error);

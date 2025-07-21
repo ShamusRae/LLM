@@ -16,22 +16,27 @@ const retryWithBackoff = async (fn, retries = 3, backoff = 1000) => {
   }
 };
 
-exports.processChat = async ({ message, sessionId, avatarId, activeAvatars, selectedFiles, onUpdate }) => {
-  console.log('Processing chat:', { message, sessionId, avatarId, activeAvatars, selectedFiles });
+exports.processChat = async ({ message, sessionId, avatarId, activeAvatars, selectedFiles, conversationContext = [], onUpdate }) => {
+  console.log('Processing chat:', { message, sessionId, avatarId, activeAvatars, selectedFiles, contextLength: conversationContext.length });
 
   try {
-    // Get the session data to access chat history
-    let session = { messages: [] };
-    if (sessionId) {
-      try {
-        session = await this.getSession(sessionId);
-      } catch (error) {
-        console.warn('Session not found, starting new session');
+    // Use conversation context from frontend if available, otherwise fall back to saved session
+    let previousResponses = conversationContext;
+    
+    if (!previousResponses || previousResponses.length === 0) {
+      // Fall back to saved session data
+      let session = { messages: [] };
+      if (sessionId) {
+        try {
+          session = await this.getSession(sessionId);
+          previousResponses = session.messages || [];
+        } catch (error) {
+          console.warn('Session not found, starting with empty context');
+        }
       }
     }
 
-    // Get previous responses for this session
-    const previousResponses = session.messages || [];
+    console.log('Using conversation context with', previousResponses.length, 'previous messages');
     
     // If a specific avatarId is provided, only get response from that avatar
     if (avatarId) {

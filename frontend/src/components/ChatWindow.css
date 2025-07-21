@@ -1,0 +1,182 @@
+/* Chat window container styles */
+.chat-window {
+  height: 70vh;
+  min-height: 400px;
+  max-height: 800px;
+  overflow-y: auto;
+  padding: 1rem;
+  scroll-behavior: smooth;
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* Style scrollbar for better appearance */
+.chat-window::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-window::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.chat-window::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 10px;
+}
+
+.chat-window::-webkit-scrollbar-thumb:hover {
+  background: #aaa;
+}
+
+/* Message containers and layout */
+.message {
+  display: flex;
+  margin-bottom: 1rem;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.user-message {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.ai-message {
+  margin-right: auto;
+  justify-content: flex-start;
+}
+
+.message-container {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 80%;
+}
+
+.message-content {
+  flex: 1;
+  min-width: 0;
+  max-width: calc(100% - 48px);
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Avatar styles */
+.avatar {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f0f0f0;
+  font-size: 14px;
+  color: #666;
+}
+
+.avatar img {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  object-fit: cover;
+}
+
+/* Fix user message layout */
+.user-message .message-container {
+  flex-direction: row-reverse;
+}
+
+.user-message .message-content {
+  background-color: #e1f5fe;
+}
+
+/* Thinking message style */
+.thinking {
+  background-color: #fff9c4 !important;
+  border: 1px solid #ffeb3b !important;
+}
+
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.thinking-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #ffeb3b;
+  border-radius: 50%;
+  animation: pulse 1.4s infinite;
+  animation-delay: calc(0.2s * var(--dot-index));
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(0.75); opacity: 0.5; }
+  50% { transform: scale(1); opacity: 1; }
+}
+
+.message-header {
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.message-body {
+  word-break: break-word;
+}
+
+/* Message content styling */
+.message-text {
+  width: 100%;
+}
+
+.message-text img {
+  max-width: 200px; /* Limit image width */
+  height: auto;
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+.message-image {
+  max-width: 200px; /* Limit image width */
+  height: auto;
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+/* Error message styling */
+.error-message {
+  color: #d32f2f;
+  font-style: italic;
+  background-color: #ffebee;
+  padding: 8px;
+  border-radius: 4px;
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.error-icon {
+  font-size: 16px;
+}
+
+.error-text {
+  font-size: 14px;
+}
+
+/* End of CSS file */ 

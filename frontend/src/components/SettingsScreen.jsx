@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import DataFeedsSelector from './DataFeedsSelector';
+import APIKeySettings from './APIKeySettings';
 
 const SettingsScreen = () => {
   const navigate = useNavigate();
@@ -19,7 +19,7 @@ const SettingsScreen = () => {
   const [error, setError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [enabledDataFeeds, setEnabledDataFeeds] = useState([]);
+  const [showAPIKeySettings, setShowAPIKeySettings] = useState(false);
 
   const availableLLMs = [
     { value: 'gpt4', label: 'GPT-4' },
@@ -35,14 +35,13 @@ const SettingsScreen = () => {
 
   // Load current settings on mount
   useEffect(() => {
-    axios.get('http://localhost:3001/api/settings')
+    axios.get('/api/settings')
       .then(res => {
         if (res.data) {
           setDefaultLLM(res.data.defaultLLM || '');
           setFileClassificationModel(res.data.fileClassificationModel || '');
           setUserDetails(res.data.userDetails || { name: '', title: '', description: '', imageUrl: null });
           setMemory(res.data.memory || []);
-          setEnabledDataFeeds(res.data.enabledDataFeeds || ['google-maps-search']);
         }
       })
       .catch(err => {
@@ -86,11 +85,10 @@ const SettingsScreen = () => {
       fileClassificationModel,
       userDetails,
       memory,
-      enabledDataFeeds
     };
 
     try {
-      await axios.put('http://localhost:3001/api/settings', settings);
+      await axios.put('/api/settings', settings);
       navigate('/');
     } catch (err) {
       console.error('Error saving settings:', err);
@@ -182,13 +180,17 @@ const SettingsScreen = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h1 className="text-2xl font-semibold text-gray-800">Settings</h1>
-        </div>
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto bg-white rounded-lg shadow p-6">
+        <h1 className="text-2xl font-bold mb-6">Settings</h1>
         
-        <form onSubmit={handleSubmit} className="p-6 space-y-8">
+        {error && (
+          <div className="mb-6 p-4 bg-red-100 border border-red-300 text-red-700 rounded">
+            {error}
+          </div>
+        )}
+        
+        <form onSubmit={handleSubmit} className="space-y-8">
           {/* Model Settings Section */}
           <div className="space-y-6">
             <h2 className="text-lg font-medium text-gray-900">Model Settings</h2>
@@ -353,20 +355,6 @@ const SettingsScreen = () => {
             </div>
           </div>
 
-          {/* Data Feeds Section */}
-          <div className="space-y-6">
-            <h2 className="text-lg font-medium text-gray-900">Data Feeds</h2>
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <p className="text-sm text-gray-700 mb-4">
-                Select which external data sources the AI can access. Deselect sources you don't need to improve performance.
-              </p>
-              <DataFeedsSelector 
-                onSelectionChange={setEnabledDataFeeds} 
-                initialSelection={enabledDataFeeds}
-              />
-            </div>
-          </div>
-
           {/* Memory Items Section */}
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -404,6 +392,22 @@ const SettingsScreen = () => {
             </div>
           </div>
 
+          {/* Add this button in the settings interface */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">AI Services</h3>
+            <button
+              type="button"
+              onClick={() => setShowAPIKeySettings(true)}
+              className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center space-x-2"
+            >
+              <span>🔑</span>
+              <span>Configure API Keys</span>
+            </button>
+            <p className="text-sm text-gray-600 mt-2">
+              Manage your AI service API keys and check service availability
+            </p>
+          </div>
+
           {/* Action Buttons */}
           <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
             <button
@@ -426,6 +430,12 @@ const SettingsScreen = () => {
           </div>
         </form>
       </div>
+
+      {/* Add the API Key Settings Modal */}
+      <APIKeySettings 
+        isOpen={showAPIKeySettings}
+        onClose={() => setShowAPIKeySettings(false)}
+      />
     </div>
   );
 };

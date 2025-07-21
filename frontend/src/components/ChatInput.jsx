@@ -1,14 +1,29 @@
 import React, { useState, useRef } from 'react';
 
-const ChatInput = ({ onSendMessage }) => {
+const ChatInput = ({ onSendMessage, selectedAvatar }) => {
   const [input, setInput] = useState('');
   const inputRef = useRef(null);
 
-  const handleSubmit = () => {
-    if (input.trim()) {
-      onSendMessage(input.trim());
+  const handleSubmit = (e) => {
+    if (e) e.preventDefault();
+    
+    if (!input.trim()) return;
+    
+    // Special handling for Ada Lovelace for data analysis
+    if (selectedAvatar === 'ada-lovelace' && 
+        (input.toLowerCase().includes('predict') || 
+         input.toLowerCase().includes('model') || 
+         input.toLowerCase().includes('analyze') || 
+         input.toLowerCase().includes('forecast'))) {
+      // The AdaLovelaceAgent component will handle this message
+      onSendMessage(input);
       setInput('');
+      return;
     }
+    
+    // Continue with normal message handling
+    onSendMessage(input);
+    setInput('');
   };
   
   const focusInput = () => {
@@ -18,32 +33,24 @@ const ChatInput = ({ onSendMessage }) => {
   };
 
   return (
-    <div className="flex items-center">
-      <button 
-        className="bg-gray-300 text-gray-700 rounded-l px-3 py-2 hover:bg-gray-400 transition-colors"
-        onClick={focusInput}
-        title="Focus input"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-        </svg>
-      </button>
-      <input 
+    <form onSubmit={handleSubmit} className="flex items-center px-4 py-2 border-t">
+      <input
         ref={inputRef}
-        className="flex-1 border-y p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" 
+        className="flex-1 p-2 mr-2 border border-gray-300 rounded"
+        type="text"
         placeholder="Type your message..."
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+        onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSubmit(e)}
         autoFocus={false}
       />
-      <button 
-        className="bg-blue-600 text-white rounded-r px-4 py-2 hover:bg-blue-700 transition-colors"
-        onClick={handleSubmit}
+      <button
+        className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        type="submit"
       >
         Send
       </button>
-    </div>
+    </form>
   );
 };
 

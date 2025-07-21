@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import MarkdownIt from 'markdown-it';
 import vegaEmbed from 'vega-embed';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import rehypeRaw from 'rehype-raw';
+import remarkGfm from 'remark-gfm';
 import { 
   FaFilePdf, 
   FaFileExcel, 
@@ -211,338 +212,434 @@ const createFallbackSpec = () => {
   };
 };
 
-const MessageContent = ({ blocks = [], downloadedFiles }) => {
+const MessageContent = ({ blocks = [], downloadedFiles, isStreaming = false }) => {
   const chartContainers = useRef({});
   const [parsedTables, setParsedTables] = useState({});
-  // Track which charts have already been rendered to prevent re-rendering on state change
-  const renderedCharts = useRef(new Set());
-  // Keep track of chart errors to display custom error messages
   const [chartErrors, setChartErrors] = useState({});
-  // Track embedded tables found in markdown content
   const [markdownTables, setMarkdownTables] = useState({});
-  // Add state to detect when message is fully loaded
-  const [messageComplete, setMessageComplete] = useState(false);
-  // Add a ref to track rendering attempts
-  const renderAttempts = useRef({});
-  // Add a ref to store timers for cleanup
-  const timersRef = useRef([]);
-
-  // First useEffect - handle Vega-Lite charts
+  const [chartStatuses, setChartStatuses] = useState({});
+  const [chartRenderingAttempted, setChartRenderingAttempted] = useState(false);
+  const chartMetadataRef = useRef({
+    // Map of actual vega-lite block indices
+    actualChartIndices: [],
+    // Track which charts have been processed
+    processedCharts: new Set(),
+    // Timestamp for chart ID generation
+    creationTimestamp: Date.now()
+  });
+  
+  // Find all vega-lite blocks and create a mapping system for them
   useEffect(() => {
-    // Handle Vega-Lite visualizations
-    const vegaBlocks = blocks.filter(block => block.type === 'vega-lite');
+    // Get actual indices of all vega-lite blocks
+    const vegaLiteIndices = [];
+    blocks.forEach((block, index) => {
+      if (block.type === 'vega-lite') {
+        vegaLiteIndices.push(index);
+      }
+    });
     
-    // Track if any charts were attempted to be rendered in this effect run
-    let chartsAttempted = false;
-    let successfulRenders = 0;
+    console.log(`[Chart Debug] Found ${vegaLiteIndices.length} vega-lite blocks at indices:`, vegaLiteIndices);
     
-    vegaBlocks.forEach((block, index) => {
-      // Generate a unique ID for this chart based on its content and index
-      // Adding more uniqueness with JSON.stringify of the whole content, not just length
-      const contentString = typeof block.content === 'string' 
-        ? block.content 
-        : JSON.stringify(block.content);
-      const contentHash = contentString.length + '-' + (contentString.length > 20 ? 
-        contentString.substring(0, 10) + contentString.substring(contentString.length - 10) : contentString);
-      const chartId = `chart-${index}-${contentHash}`;
-      const container = chartContainers.current[index];
+    // If no charts, reset everything
+    if (vegaLiteIndices.length === 0) {
+      setChartStatuses({});
+      chartContainers.current = {};
+      chartMetadataRef.current = {
+        actualChartIndices: [],
+        processedCharts: new Set(),
+        creationTimestamp: Date.now()
+      };
+      return;
+    }
+    
+    // Check if chart indices have changed
+    const currentIndices = chartMetadataRef.current.actualChartIndices;
+    const indicesChanged = currentIndices.length !== vegaLiteIndices.length || 
+      !currentIndices.every((val, idx) => val === vegaLiteIndices[idx]);
+    
+    // If indices changed, reset chart state
+    if (indicesChanged) {
+      console.log('[Chart Debug] Chart indices changed, resetting chart state');
       
-      chartsAttempted = true;
+      // Update indices
+      chartMetadataRef.current.actualChartIndices = vegaLiteIndices;
+      chartMetadataRef.current.processedCharts = new Set();
       
-      // Skip if container doesn't exist
-      if (!container) {
-        console.log(`Container for chart ${index} doesn't exist, skipping`);
-        return;
-      }
+      // Reset rendering flag
+      setChartRenderingAttempted(false);
       
-      // Initialize or increment render attempts counter
-      renderAttempts.current[chartId] = (renderAttempts.current[chartId] || 0) + 1;
-      
-      // Check if we already rendered this exact chart AND the container has vega content
-      const hasVegaContent = container.querySelector('.vega-embed') || container.querySelector('.marks');
-      if (renderedCharts.current.has(chartId) && hasVegaContent) {
-        console.log(`Chart ${chartId} already rendered, skipping (attempt ${renderAttempts.current[chartId]})`);
-        return;
-      }
-
-      // If we've tried too many times for this chart, skip to avoid infinite loops
-      if (renderAttempts.current[chartId] > 10) {
-        console.warn(`Too many render attempts for chart ${chartId}, giving up`);
-        return;
-      }
-
-      console.log(`Attempting to render chart ${index} with ID ${chartId} (attempt ${renderAttempts.current[chartId]})`);
-      
-      // Parse the spec
-      let rawSpec;
-      try {
-        rawSpec = typeof block.content === 'string' 
-          ? JSON.parse(block.content) 
-          : block.content;
-      } catch (e) {
-        console.error('Failed to parse Vega-Lite spec:', e);
-        setChartErrors(prev => ({...prev, [index]: 'Invalid JSON in chart specification'}));
-        return;
-      }
-
-      // Validate the Vega-Lite spec
-      if (!isValidVegaLiteSpec(rawSpec)) {
-        console.warn('Invalid Vega-Lite specification', rawSpec);
-        setChartErrors(prev => ({...prev, [index]: 'Invalid Vega-Lite specification format'}));
-        
-        // Try to render with the fallback spec
-        rawSpec = createFallbackSpec();
-      }
-
-      // Normalize the spec to prevent errors
-      const spec = normalizeVegaLiteSpec(rawSpec);
-      if (!spec) {
-        setChartErrors(prev => ({...prev, [index]: 'Failed to normalize chart specification'}));
-        return;
-      }
-
-      console.log(`Rendering chart ${chartId}`, spec);
-      
-      // Always clear container before rendering to avoid stale content
-      while (container.firstChild) {
-        container.removeChild(container.firstChild);
-      }
-
-      // Reset error for this chart
-      setChartErrors(prev => {
-        const newErrors = {...prev};
-        delete newErrors[index];
-        return newErrors;
+      // Initialize statuses for all charts
+      const initialStatuses = {};
+      vegaLiteIndices.forEach((blockIndex, chartPosition) => {
+        const chartId = getChartId(blockIndex);
+        initialStatuses[chartId] = {
+          status: 'waiting',
+          blockIndex,
+          position: chartPosition + 1 // 1-based position for display
+        };
       });
-
-      // Embed chart with better error handling
-      vegaEmbed(container, spec, {
-        actions: true,
-        theme: 'dark',
-        renderer: 'canvas',
-        defaultStyle: true, // Use default styles to avoid missing CSS
-        logLevel: 2, // Show warnings
-        tooltip: true, // Enable tooltips
-        config: {
-          // Add a base config to ensure all mark types have default values
-          mark: { tooltip: true },
-          bar: { fill: '#4C78A8' },
-          line: { stroke: '#4C78A8' },
-          area: { fill: '#4C78A8' },
-          point: { filled: true, size: 60 },
-          rect: { fill: '#4C78A8' },
-          // Add sensible defaults for all mark types
-          axis: {
-            labelFontSize: 11,
-            titleFontSize: 13,
-            titlePadding: 10
-          },
-          // Better fonts for text
-          text: {
-            fontSize: 11,
-            font: 'sans-serif'
-          },
-          // Enable tooltips globally
-          view: {
-            stroke: null
-          },
-          // Ensure titles are readable
-          title: {
-            fontSize: 16,
-            font: 'sans-serif'
+      
+      setChartStatuses(initialStatuses);
+      
+      // Clear container refs to avoid using stale references
+      chartContainers.current = {};
+    }
+    
+    return () => {
+      // Clean up any resize handlers or other resources
+      Object.values(chartStatuses).forEach(status => {
+        if (status?.cleanup && typeof status.cleanup === 'function') {
+          try {
+            status.cleanup();
+          } catch (e) {
+            console.error('[Chart Debug] Error during cleanup:', e);
           }
         }
-      }).then(result => {
-        // Mark this chart as rendered
-        renderedCharts.current.add(chartId);
-        successfulRenders++;
-        console.log(`Successfully rendered chart ${chartId} (${successfulRenders}/${vegaBlocks.length} charts rendered)`);
+      });
+    };
+  }, [blocks]);
+  
+  // Get chart ID for a block index
+  const getChartId = (blockIndex) => {
+    return `chart-${chartMetadataRef.current.creationTimestamp}-${blockIndex}`;
+  };
+  
+  // Convert block index to chart position (0 to N-1 -> 1 to N)
+  const getChartPosition = (blockIndex) => {
+    const position = chartMetadataRef.current.actualChartIndices.indexOf(blockIndex);
+    return position >= 0 ? position + 1 : null;
+  };
+  
+  // Get block index from chart position (1 to N -> actual block index)
+  const getBlockIndexFromPosition = (position) => {
+    // Convert from 1-based to 0-based
+    const index = position - 1;
+    if (index >= 0 && index < chartMetadataRef.current.actualChartIndices.length) {
+      return chartMetadataRef.current.actualChartIndices[index];
+    }
+    return null;
+  };
+  
+  // Store references to chart containers
+  const setChartContainerRef = useCallback((element, blockIndex) => {
+    if (element) {
+      const chartId = getChartId(blockIndex);
+      chartContainers.current[chartId] = element;
+      
+      const position = getChartPosition(blockIndex);
+      console.log(`[Chart Debug] Container ref set for chart ${position} (block index: ${blockIndex}, ID: ${chartId})`);
+    }
+  }, []);
+  
+  // Render charts - only when streaming is complete or manually triggered
+  useEffect(() => {
+    // Skip if still streaming and not manually triggered
+    if (isStreaming && !chartRenderingAttempted) {
+      console.log('[Chart Debug] Still streaming, delaying chart rendering');
+      return;
+    }
+    
+    // Only proceed if we have chart indices
+    const chartIndices = chartMetadataRef.current.actualChartIndices;
+    if (chartIndices.length === 0) return;
+    
+    console.log(`[Chart Debug] Starting to render ${chartIndices.length} charts (streaming: ${isStreaming})`);
+    
+    // Track component mounted state
+    let mounted = true;
+    
+    // Render a single chart
+    const renderChart = async (chartPosition) => {
+      if (!mounted) return;
+      
+      // Convert position to block index
+      const blockIndex = getBlockIndexFromPosition(chartPosition);
+      if (blockIndex === null) {
+        console.error(`[Chart Debug] Invalid chart position ${chartPosition}`);
+        return;
+      }
+      
+      const chartId = getChartId(blockIndex);
+      console.log(`[Chart Debug] Preparing to render chart ${chartPosition} (block index: ${blockIndex}, ID: ${chartId})`);
+      
+      // Check if this chart has already been processed
+      if (chartMetadataRef.current.processedCharts.has(chartId)) {
+        console.log(`[Chart Debug] Chart ${chartPosition} already processed, skipping`);
+        return;
+      }
+      
+      // Get container element
+      const container = chartContainers.current[chartId];
+      if (!container) {
+        console.error(`[Chart Debug] Container not found for chart ${chartPosition} (block index: ${blockIndex})`);
         
-        // Force a small timeout and re-render to ensure the chart is properly sized
-        setTimeout(() => {
-          if (result && result.view) {
-            try {
-              result.view.resize().run();
-              console.log(`Chart ${chartId} resized and re-run`);
-            } catch (e) {
-              console.warn(`Failed to resize chart ${chartId}:`, e);
+        // Update status to error
+        if (mounted) {
+          setChartStatuses(prev => ({
+            ...prev,
+            [chartId]: {
+              ...prev[chartId],
+              status: 'error',
+              message: 'Chart container not available',
+              blockIndex,
+              position: chartPosition
             }
+          }));
+        }
+        return;
+      }
+      
+      // Get the chart block
+      const block = blocks.find((_, index) => index === blockIndex);
+      if (!block || block.type !== 'vega-lite') {
+        console.error(`[Chart Debug] Block at index ${blockIndex} is not a vega-lite block`);
+        return;
+      }
+      
+      // Update status to loading
+      if (mounted) {
+        setChartStatuses(prev => ({
+          ...prev,
+          [chartId]: {
+            ...prev[chartId],
+            status: 'loading',
+            blockIndex,
+            position: chartPosition
           }
-        }, 100);
-      }).catch(error => {
-        console.error('Error embedding chart:', error);
-        console.error('Problematic spec:', JSON.stringify(spec, null, 2));
-        
-        // More detailed error logging to help identify issues
-        if (spec.mark) {
-          console.error(`Mark type: ${typeof spec.mark === 'string' ? spec.mark : spec.mark.type}`);
-        }
-        if (spec.encoding) {
-          console.error(`Encoding channels: ${Object.keys(spec.encoding).join(', ')}`);
-        }
-        if (spec.config) {
-          console.error(`Config keys: ${Object.keys(spec.config).join(', ')}`);
-        }
-        
-        setChartErrors(prev => ({
-          ...prev, 
-          [index]: `Failed to render chart: ${error.message}`
         }));
+      }
+      
+      try {
+        // Parse the chart specification
+        const content = block.content;
+        const spec = typeof content === 'string' ? JSON.parse(content) : content;
         
-        // Create an error message element
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'chart-error p-4 bg-red-50 text-red-700 border border-red-300 rounded';
-        errorDiv.innerHTML = `
-          <p class="font-bold">Failed to render chart: ${error.message}</p>
-          <p class="text-sm mt-2">Try refreshing the page or contact support if the issue persists.</p>
-        `;
-        
-        // Clear container and add error message
+        // Clear the container first
         while (container.firstChild) {
           container.removeChild(container.firstChild);
         }
-        container.appendChild(errorDiv);
-      });
-    });
-
-    // After processing all charts, check if all were rendered successfully
-    if (vegaBlocks.length > 0) {
-      // Schedule a short timeout to allow any async rendering to complete
-      setTimeout(() => {
-        // Count how many charts appear to be rendered
-        const renderedCount = vegaBlocks.reduce((count, _, index) => {
-          const container = chartContainers.current[index];
-          const hasVegaContent = container && (container.querySelector('.vega-embed') || container.querySelector('.marks'));
-          return hasVegaContent ? count + 1 : count;
-        }, 0);
         
-        console.log(`Chart rendering summary: ${renderedCount}/${vegaBlocks.length} charts appear to be rendered`);
+        // Normalize the chart specification
+        const normalizedSpec = normalizeVegaLiteSpec(spec);
+        if (!normalizedSpec) {
+          throw new Error('Failed to normalize chart specification');
+        }
         
-        // If all charts are rendered, trigger a final resize
-        if (renderedCount === vegaBlocks.length) {
-          console.log('All charts rendered, performing final resize');
-          vegaBlocks.forEach((_, index) => {
-            const container = chartContainers.current[index];
-            if (container) {
-              const vegaView = container.querySelector('.vega-embed')?.querySelector('.marks');
-              if (vegaView) {
-                // Try to access the Vega view to trigger resize
-                try {
-                  const vegaChart = vegaView.__view__;
-                  if (vegaChart && vegaChart.resize) {
-                    vegaChart.resize().run();
-                  }
-                } catch (e) {
-                  // Ignore errors accessing the view
-                }
+        // Set standard size and autosize properties
+        normalizedSpec.width = normalizedSpec.width || 'container';
+        normalizedSpec.height = normalizedSpec.height || 300;
+        normalizedSpec.autosize = {
+          type: 'fit',
+          contains: 'padding'
+        };
+        
+        // Add a small delay to avoid overwhelming the browser
+        await new Promise(resolve => setTimeout(resolve, 150 * (chartPosition - 1)));
+        
+        // Render the chart
+        console.log(`[Chart Debug] Embedding chart ${chartPosition}`);
+        const result = await vegaEmbed(container, normalizedSpec, {
+          actions: true,
+          renderer: 'svg',
+          downloadFileName: `chart-${chartPosition}`,
+          tooltip: true,
+          config: {
+            axis: { labelFontSize: 12, titleFontSize: 14 },
+            legend: { labelFontSize: 12, titleFontSize: 14 },
+            title: { fontSize: 16, subtitleFontSize: 14 },
+            view: { continuousHeight: 300, continuousWidth: 400 }
+          }
+        });
+        
+        // Resize after initial render
+        if (result && result.view) {
+          await result.view.resize().runAsync();
+          
+          // Add resize handler
+          const resizeHandler = () => {
+            if (result && result.view) {
+              try {
+                result.view.resize().run();
+              } catch (e) {
+                console.warn(`[Chart Debug] Error resizing chart ${chartPosition}:`, e);
               }
             }
-          });
+          };
+          
+          window.addEventListener('resize', resizeHandler);
+          
+          // Mark as processed
+          chartMetadataRef.current.processedCharts.add(chartId);
+          
+          // Update status to rendered
+          if (mounted) {
+            setChartStatuses(prev => ({
+              ...prev,
+              [chartId]: {
+                ...prev[chartId],
+                status: 'rendered',
+                cleanup: () => window.removeEventListener('resize', resizeHandler),
+                blockIndex,
+                position: chartPosition
+              }
+            }));
+          } else {
+            // Clean up if unmounted
+            window.removeEventListener('resize', resizeHandler);
+          }
+          
+          console.log(`[Chart Debug] Chart ${chartPosition} rendered successfully`);
         }
-      }, 200);
-    }
-
-    // If we had chart blocks but no rendering was attempted, schedule a re-render
-    // This helps when containers aren't ready yet but we have chart data
-    if (vegaBlocks.length > 0 && !chartsAttempted) {
-      const reRenderTimer = setTimeout(() => {
-        console.log('Scheduling chart re-render attempt');
-        // Force re-render by creating a new ref
-        chartContainers.current = { ...chartContainers.current };
-      }, 500);
-      
-      // Store the timer for cleanup
-      timersRef.current.push(reRenderTimer);
-    }
-
-    // Cleanup function for all timers
-    return () => {
-      // Clear all timers
-      timersRef.current.forEach(timer => clearTimeout(timer));
-      timersRef.current = [];
-      
-      // Only clear rendered charts when component unmounts
-      if (blocks.length === 0) {
-        renderedCharts.current.clear();
+      } catch (error) {
+        console.error(`[Chart Debug] Error rendering chart ${chartPosition}:`, error);
+        
+        if (mounted) {
+          setChartStatuses(prev => ({
+            ...prev,
+            [chartId]: {
+              ...prev[chartId],
+              status: 'error',
+              message: error.message || 'Unknown error rendering chart',
+              blockIndex,
+              position: chartPosition
+            }
+          }));
+          
+          // Try to render a fallback chart
+          tryFallbackChart(container, blockIndex, chartPosition);
+        }
       }
     };
+    
+    // Render a fallback chart
+    const tryFallbackChart = async (container, blockIndex, chartPosition) => {
+      if (!mounted || !container) return;
+      
+      const chartId = getChartId(blockIndex);
+      
+      try {
+        console.log(`[Chart Debug] Attempting fallback for chart ${chartPosition}`);
+        const fallbackSpec = createFallbackSpec();
+        
+        await vegaEmbed(container, fallbackSpec, {
+          actions: false,
+          renderer: 'svg',
+          config: { 
+            background: '#f8f9fa',
+            text: { fontSize: 14 }
+          }
+        });
+        
+        // Mark as processed
+        chartMetadataRef.current.processedCharts.add(chartId);
+        
+        if (mounted) {
+          setChartStatuses(prev => ({
+            ...prev,
+            [chartId]: {
+              ...prev[chartId],
+              status: 'fallback',
+              blockIndex,
+              position: chartPosition
+            }
+          }));
+        }
+      } catch (e) {
+        console.error(`[Chart Debug] Even fallback chart failed for ${chartPosition}:`, e);
+      }
+    };
+    
+    // Start rendering with a delay to ensure all containers are ready
+    setTimeout(() => {
+      if (!mounted) return;
+      
+      // Mark that we've attempted rendering
+      setChartRenderingAttempted(true);
+      
+      // Get number of charts to render
+      const chartCount = chartMetadataRef.current.actualChartIndices.length;
+      
+      // Render each chart with staggered timing, using position (1-based)
+      for (let position = 1; position <= chartCount; position++) {
+        setTimeout(() => {
+          if (mounted) {
+            renderChart(position);
+          }
+        }, (position - 1) * 300); // Stagger by position, not block index
+      }
+    }, 250);
+    
+    // Cleanup function
+    return () => {
+      mounted = false;
+    };
+  }, [blocks, isStreaming, chartRenderingAttempted]);
+
+  // First preprocess blocks to handle any [GRAPH_START]/[GRAPH_END] markers in text blocks
+  useEffect(() => {
+    // Skip if no blocks
+    if (!blocks || blocks.length === 0) return;
+    
+    // Check for any text blocks that might contain graph markers
+    const graphRegex = /\[GRAPH_START\]([\s\S]*?)\[GRAPH_END\]/g;
+    let foundEmbeddedGraphs = false;
+    let extractedGraphSpecs = [];
+    
+    // Look through text blocks for embedded graphs and extract them
+    blocks.forEach(block => {
+      if (block.type === 'text' && typeof block.content === 'string') {
+        const content = block.content;
+        if (content.includes('[GRAPH_START]') && content.includes('[GRAPH_END]')) {
+          foundEmbeddedGraphs = true;
+          console.log('[Chart Debug] Found embedded graphs in text content');
+          
+          // Extract all graph specs
+          let match;
+          while ((match = graphRegex.exec(content)) !== null) {
+            try {
+              const graphSpec = match[1].trim();
+              extractedGraphSpecs.push(graphSpec);
+            } catch (e) {
+              console.error('Error extracting graph spec:', e);
+            }
+          }
+        }
+      }
+    });
+    
+    // If we found embedded graphs, process them
+    if (foundEmbeddedGraphs && extractedGraphSpecs.length > 0) {
+      console.log(`[Chart Debug] Extracted ${extractedGraphSpecs.length} embedded graph specs`);
+      
+      // We would add logic here to convert these extracted specs into proper vega-lite blocks
+      // This is placeholder for future implementation
+    }
   }, [blocks]);
 
-  // New useEffect to handle rendering charts after message is complete
-  useEffect(() => {
-    // Only run once per block update
-    if (!messageComplete) {
-      // Mark message as complete after a delay
-      const timer = setTimeout(() => {
-        setMessageComplete(true);
-        console.log('Message marked as complete, checking for unrendered charts');
-        
-        // Force a re-render attempt of all charts
-        const vegaBlocks = blocks.filter(block => block.type === 'vega-lite');
-        if (vegaBlocks.length > 0) {
-          console.log(`Attempting to render ${vegaBlocks.length} charts after completion`);
-          
-          // Force a more aggressive re-render of all charts
-          vegaBlocks.forEach((block, index) => {
-            // Generate chart ID similar to the main useEffect
-            const contentString = typeof block.content === 'string' 
-              ? block.content 
-              : JSON.stringify(block.content);
-            const contentHash = contentString.length + '-' + (contentString.length > 20 ? 
-              contentString.substring(0, 10) + contentString.substring(contentString.length - 10) : contentString);
-            const chartId = `chart-${index}-${contentHash}`;
-            
-            // Check if this chart's container exists but chart hasn't been rendered
-            const container = chartContainers.current[index];
-            const hasVegaContent = container && (container.querySelector('.vega-embed') || container.querySelector('.marks'));
-            
-            if (container && !hasVegaContent) {
-              console.log(`Chart completion: Container for chart ${index} exists but no chart rendered yet`);
-              
-              // Clear any previous rendered status for this chart to force re-render
-              renderedCharts.current.delete(chartId);
-              
-              // Clear container to ensure fresh rendering
-              if (container) {
-                while (container.firstChild) {
-                  container.removeChild(container.firstChild);
-                }
-              }
-            }
-          });
-          
-          // Create a new ref object to trigger the chart rendering useEffect
-          chartContainers.current = { ...chartContainers.current };
-          
-          // Schedule another check in case not all charts are rendered
-          setTimeout(() => {
-            // Count unrendered charts
-            let unrenderedCount = 0;
-            vegaBlocks.forEach((_, index) => {
-              const container = chartContainers.current[index];
-              const hasVegaContent = container && (container.querySelector('.vega-embed') || container.querySelector('.marks'));
-              if (container && !hasVegaContent) {
-                unrenderedCount++;
-              }
-            });
-            
-            if (unrenderedCount > 0) {
-              console.log(`Still have ${unrenderedCount} unrendered charts, triggering another render cycle`);
-              // Force one more refresh cycle
-              chartContainers.current = { ...chartContainers.current };
-            }
-          }, 1500);
-        }
-      }, 1000); // Wait 1 second after blocks update to consider message "complete"
-      
-      return () => clearTimeout(timer);
+  // Add a preprocessor for text with [GRAPH_START]/[GRAPH_END] markers
+  const processGraphMarkersInText = (text) => {
+    if (!text || typeof text !== 'string') return text;
+    
+    // Check if the text contains graph markers
+    if (!text.includes('[GRAPH_START]') || !text.includes('[GRAPH_END]')) {
+      return text;
     }
-  }, [blocks, messageComplete]);
-
-  // Reset messageComplete when blocks change significantly
-  useEffect(() => {
-    setMessageComplete(false);
-  }, [blocks.length]);
+    
+    // Replace graph markers with a placeholder that will be displayed more nicely
+    return text.replace(/\[GRAPH_START\]([\s\S]*?)\[GRAPH_END\]/g, 
+      (match, graphContent) => {
+        // Try to parse the graph content as JSON
+        try {
+          // Just validate it's proper JSON
+          JSON.parse(graphContent.trim());
+          return '[Graph visualization will appear here]';
+        } catch (e) {
+          console.error('Failed to parse graph content:', e);
+          return '[Invalid graph specification]';
+        }
+      }
+    );
+  };
 
   // Second useEffect - find and extract tables from text content
   useEffect(() => {
@@ -593,12 +690,19 @@ const MessageContent = ({ blocks = [], downloadedFiles }) => {
     setMarkdownTables(foundTables);
   }, [blocks]);
 
+  // Enhanced parseTable function with graph marker detection
   const parseTable = (tableText) => {
     try {
       // Make sure we're working with a string
       if (typeof tableText !== 'string') {
         console.error('Table text is not a string:', tableText);
         return null;
+      }
+      
+      // Check if this contains embedded graph markers
+      if (tableText.includes('[GRAPH_START]') && tableText.includes('[GRAPH_END]')) {
+        console.log('[Chart Debug] Found graph markers within table text, special handling needed');
+        // Future enhancement: extract and process embedded graphs in tables
       }
       
       // Split into lines and remove any empty lines
@@ -730,21 +834,15 @@ const MessageContent = ({ blocks = [], downloadedFiles }) => {
     );
   };
 
+  // Modify renderText to handle graph markers
   const renderText = (content) => {
-    // Function to log graph json for debugging
-    const logGraph = (graphObj) => {
-      console.log('Graph JSON structure:', {
-        hasData: !!graphObj.data,
-        hasEncoding: !!graphObj.encoding,
-        markType: typeof graphObj.mark === 'string' ? graphObj.mark : (graphObj.mark?.type || 'unknown'),
-        config: graphObj.config || 'none'
-      });
-      return graphObj;
-    };
-
+    // Preprocess content to handle graph markers
+    const processedContent = processGraphMarkersInText(content);
+    
     return (
       <div className="markdown-content mb-2">
         <ReactMarkdown 
+          remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw]} 
           components={{
             table: ({ node, ...props }) => {
@@ -771,63 +869,43 @@ const MessageContent = ({ blocks = [], downloadedFiles }) => {
                   .filter(Boolean)
                   .join('\n');
                 
-                // Generate a unique ID for the table
-                const tableId = `md-table-${tableContent.length}`;
-                
-                // Parse the table content if we haven't already
-                if (!parsedTables[tableId] && tableContent) {
-                  const parsed = parseTable(tableContent);
-                  if (parsed) {
-                    // Update state in a non-blocking way
-                    setTimeout(() => {
-                      setParsedTables(prev => ({
-                        ...prev,
-                        [tableId]: parsed
-                      }));
-                    }, 0);
-                  }
-                }
-                
-                // If we already have the parsed table, render it
-                if (parsedTables[tableId]) {
-                  return (
-                    <div className="overflow-x-auto my-4">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            {parsedTables[tableId].headers.map((header, i) => (
-                              <th 
-                                key={i}
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                              >
-                                {header}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {parsedTables[tableId].rows.map((row, rowIndex) => (
-                            <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                              {row.map((cell, cellIndex) => (
-                                <td key={cellIndex} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                  {cell}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                }
-                
-                // Fall back to original table if parsing failed
-                return <MarkdownTable>{tableContent}</MarkdownTable>;
+                return (
+                  <div className="overflow-x-auto my-4">
+                    <table className="min-w-full divide-y divide-gray-200 border">
+                      {props.children}
+                    </table>
+                  </div>
+                );
               } catch (error) {
                 console.error('Error rendering table:', error);
                 return <div className="text-red-500 p-2 border rounded">Error rendering table</div>;
               }
             },
+            thead: ({node, ...props}) => (
+              <thead className="bg-gray-50">
+                {props.children}
+              </thead>
+            ),
+            tbody: ({node, ...props}) => (
+              <tbody className="bg-white divide-y divide-gray-200">
+                {props.children}
+              </tbody>
+            ),
+            tr: ({node, ...props}) => (
+              <tr className="hover:bg-gray-50">
+                {props.children}
+              </tr>
+            ),
+            th: ({node, ...props}) => (
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                {props.children}
+              </th>
+            ),
+            td: ({node, ...props}) => (
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                {props.children}
+              </td>
+            ),
             code: ({ node, inline, className, children, ...props }) => {
               const match = /language-(\w+)/.exec(className || '');
               return !inline && match ? (
@@ -848,7 +926,7 @@ const MessageContent = ({ blocks = [], downloadedFiles }) => {
             }
           }}
         >
-          {content}
+          {processedContent}
         </ReactMarkdown>
       </div>
     );
@@ -982,81 +1060,176 @@ const MessageContent = ({ blocks = [], downloadedFiles }) => {
   
   return (
     <div className="message-blocks">
-      {blocks.map((block, index) => {
+      {blocks.map((block, blockIndex) => {
         switch (block.type) {
           case 'text':
-            return <div key={index}>{renderText(block.content)}</div>;
+            return <div key={blockIndex}>{renderText(block.content)}</div>;
           case 'code':
-            return <div key={index}>{renderCode(block.content, block.language)}</div>;
+            return <div key={blockIndex}>{renderCode(block.content, block.language)}</div>;
           case 'table':
-            return <div key={index}>{renderTable(block.content)}</div>;
-          case 'vega-lite':
-            // Create unique key based on content hash to force re-mount when content truly changes
-            const contentString = typeof block.content === 'string' 
-              ? block.content 
-              : JSON.stringify(block.content);
-            const contentKey = contentString.length + '-' + (contentString.length > 20 
-              ? contentString.substring(0, 10) + contentString.substring(contentString.length - 10) 
-              : contentString);
+            return <div key={blockIndex}>{renderTable(block.content)}</div>;
+          case 'vega-lite': {
+            const chartId = getChartId(blockIndex);
+            const position = getChartPosition(blockIndex);
             
-            // Determine if this is a chart that needs rendering
-            const chartId = `chart-${index}-${contentKey}`;
-            const isRendered = renderedCharts.current.has(chartId);
+            // Skip if not a recognized chart position
+            if (position === null) {
+              console.warn(`[Chart Debug] Block ${blockIndex} is vega-lite but not in actualChartIndices`);
+              return null;
+            }
+            
+            const status = chartStatuses[chartId] || {
+              status: 'waiting',
+              blockIndex,
+              position
+            };
             
             return (
-              <div key={`chart-${index}-${contentKey}`} className="my-3">
-                <div
-                  ref={el => {
-                    if (el && !chartContainers.current[index]) {
-                      console.log(`Setting up container for chart ${index}`);
-                    }
-                    chartContainers.current[index] = el;
-                  }}
-                  className="chart-container relative border border-gray-200 rounded-lg overflow-hidden"
-                  style={{ minHeight: '250px', width: '100%' }}
-                  data-testid="chart-container"
-                  data-chart-index={index}
+              <div key={`chart-wrapper-${chartId}`} className="my-4">
+                <div 
+                  className="chart-wrapper relative bg-white border border-gray-200 rounded-lg overflow-hidden"
+                  data-chart-index={blockIndex}
                   data-chart-id={chartId}
-                  data-chart-status={isRendered ? 'rendered' : 'pending'}
-                />
-                {chartErrors[index] && (
-                  <div className="mt-2 p-3 bg-red-50 text-red-700 border border-red-300 rounded text-sm">
-                    {chartErrors[index]}
+                  data-chart-position={position}
+                >
+                  {/* Chart title & status */}
+                  <div className="absolute top-0 right-0 bg-gray-100 text-xs text-gray-600 px-1 z-50">
+                    Chart {position} - {status.status}
+                  </div>
+                  
+                  {/* Chart container */}
+                  <div
+                    ref={el => setChartContainerRef(el, blockIndex)}
+                    id={`chart-container-${chartId}`}
+                    className="chart-container w-full p-4"
+                    style={{ minHeight: '300px' }}
+                  />
+                  
+                  {/* Loading indicator */}
+                  {(status.status === 'loading' || status.status === 'waiting') && (
+                    <div 
+                      className="absolute top-0 left-0 right-0 bottom-0 bg-gray-50 bg-opacity-70 flex items-center justify-center"
+                      style={{ zIndex: 5, pointerEvents: 'none' }}
+                    >
+                      <div className="text-sm font-medium text-gray-600 flex flex-col items-center p-2 bg-white rounded-md shadow-sm">
+                        <div className="mb-2">
+                          {status.status === 'loading' 
+                            ? `Rendering chart ${position}...` 
+                            : `Preparing chart ${position}...`}
+                        </div>
+                        <div className="loading-dots flex space-x-1">
+                          <div className="w-2 h-2 rounded-full bg-gray-500 animate-pulse"></div>
+                          <div className="w-2 h-2 rounded-full bg-gray-500 animate-pulse" style={{animationDelay: '0.2s'}}></div>
+                          <div className="w-2 h-2 rounded-full bg-gray-500 animate-pulse" style={{animationDelay: '0.4s'}}></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Streaming mode indicator */}
+                {isStreaming && !chartRenderingAttempted && (
+                  <div className="mt-2 p-2 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs flex items-center justify-between">
+                    <span>Chart {position} will render when message is complete</span>
+                    <button 
+                      onClick={() => setChartRenderingAttempted(true)}
+                      className="text-blue-600 hover:underline text-xs ml-2 px-2 py-1 rounded bg-white"
+                    >
+                      Render now
+                    </button>
                   </div>
                 )}
-                {typeof block.content === 'string' && block.content.length > 0 && (
-                  <div className="text-xs mt-2 text-gray-500">
-                    <div className="flex justify-between">
-                      <span>Chart data: {block.content.length} characters</span>
-                      <button 
-                        className="text-blue-500 hover:text-blue-700 text-xs"
-                        onClick={() => {
+                
+                {/* Error message */}
+                {status.status === 'error' && status.message && (
+                  <div className="mt-2 p-3 bg-red-50 text-red-700 border border-red-200 rounded text-sm">
+                    <div className="font-medium mb-1">Error rendering chart {position}:</div>
+                    <div>{status.message}</div>
+                    <button 
+                      className="mt-2 text-blue-600 text-xs hover:underline focus:outline-none"
+                      onClick={() => {
+                        // Manual re-render for this specific chart
+                        const container = chartContainers.current[chartId];
+                        if (container) {
                           try {
-                            // Force re-render this specific chart
-                            const chartKey = `chart-${index}-${contentKey}`;
-                            console.log(`User requested re-render of chart ${chartKey}`);
-                            renderedCharts.current.delete(chartKey);
-                            // Create a shallow copy to trigger re-render
-                            const currentContainer = chartContainers.current[index];
-                            if (currentContainer) {
-                              while (currentContainer.firstChild) {
-                                currentContainer.removeChild(currentContainer.firstChild);
+                            // Update status to loading
+                            setChartStatuses(prev => ({
+                              ...prev,
+                              [chartId]: {
+                                ...prev[chartId],
+                                status: 'loading'
                               }
+                            }));
+                            
+                            // Clear container
+                            while (container.firstChild) {
+                              container.removeChild(container.firstChild);
                             }
-                            // Force useEffect to run again
-                            chartContainers.current = { ...chartContainers.current };
+                            
+                            // Get the chart block
+                            const block = blocks.find((_, index) => index === blockIndex);
+                            if (!block || block.type !== 'vega-lite') {
+                              throw new Error('Chart block not found');
+                            }
+                            
+                            // Get and normalize the spec
+                            const content = block.content;
+                            const spec = typeof content === 'string' ? JSON.parse(content) : content;
+                            const normalizedSpec = normalizeVegaLiteSpec(spec);
+                            
+                            // Remove from processed charts to allow re-rendering
+                            chartMetadataRef.current.processedCharts.delete(chartId);
+                            
+                            // Render the chart
+                            vegaEmbed(container, normalizedSpec, {
+                              actions: true,
+                              renderer: 'svg'
+                            }).then(result => {
+                              if (result && result.view) {
+                                result.view.resize().runAsync().then(() => {
+                                  // Mark as processed
+                                  chartMetadataRef.current.processedCharts.add(chartId);
+                                  
+                                  setChartStatuses(prev => ({
+                                    ...prev,
+                                    [chartId]: {
+                                      ...prev[chartId],
+                                      status: 'rendered'
+                                    }
+                                  }));
+                                });
+                              }
+                            }).catch(e => {
+                              console.error(`[Chart Debug] Re-render failed for chart ${position}:`, e);
+                              setChartStatuses(prev => ({
+                                ...prev,
+                                [chartId]: {
+                                  ...prev[chartId],
+                                  status: 'error',
+                                  message: e.message
+                                }
+                              }));
+                            });
                           } catch (e) {
-                            console.error('Error refreshing chart:', e);
+                            console.error(`[Chart Debug] Error preparing re-render for chart ${position}:`, e);
                           }
-                        }}
-                      >
-                        Refresh Chart
-                      </button>
-                    </div>
+                        }
+                      }}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                )}
+                
+                {/* Fallback message */}
+                {status.status === 'fallback' && (
+                  <div className="mt-2 p-2 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded text-xs">
+                    Simplified fallback chart shown for chart {position} due to rendering issues
                   </div>
                 )}
               </div>
             );
+          }
           default:
             return null;
         }

@@ -2,6 +2,25 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { z } = require('zod');
 const axios = require('axios');
 const { createFileFromExternalSource } = require('./fileService');
+const NodeCache = require('node-cache');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+// Import Yahoo Finance integration
+const yahooFinance = require('./yahoo-finance-mcp-integration');
+
+// Initialize cache for API responses
+const cache = new NodeCache({ stdTTL: 3600 }); // Cache for 1 hour
+let lastSECApiCall = null;
+
+// Create cache directory for SEC filings
+const cacheDir = path.join(os.tmpdir(), 'llm-chat-sec-cache');
+if (!fs.existsSync(cacheDir)) {
+  fs.mkdirSync(cacheDir, { recursive: true });
+}
+
+// User agent string for SEC API requests (required by SEC EDGAR)
+const userAgentString = `LLM-Chat/${process.env.SEC_APP_NAME || 'SEC API Integration'} Contact: ${process.env.SEC_CONTACT_EMAIL || 'example@example.com'}`;
 
 // Create MCP server
 const server = new McpServer({
@@ -165,6 +184,86 @@ server.tool(
   }
 );
 
+// Yahoo Finance Stock Metric Tool
+server.tool(
+  "yahoo-finance-stock-metric",
+  {
+    symbol: z.string().describe("Stock symbol (e.g., 'AAPL', 'MSFT', 'TSLA')"),
+    metric: z.string().describe("Stock metric to retrieve (e.g., 'currentPrice', 'marketCap', 'trailingPE')")
+  },
+  async ({ symbol, metric }) => {
+    try {
+      console.log(`Executing Yahoo Finance stock metric lookup for: ${symbol}, metric: ${metric}`);
+      
+      // Check if the Yahoo Finance MCP server is available
+      const isAvailable = await yahooFinance.isYahooFinanceMcpAvailable();
+      if (!isAvailable) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({ 
+              error: "Yahoo Finance MCP server is not available. Please ensure it is running." 
+            }, null, 2)
+          }],
+          isError: true
+        };
+      }
+      
+      // Call the Yahoo Finance MCP integration service
+      return await yahooFinance.getStockMetric({ symbol, metric });
+    } catch (error) {
+      console.error("Yahoo Finance stock metric lookup error:", error);
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Error fetching Yahoo Finance data: ${error.message}`
+        }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Yahoo Finance Historical Data Tool
+server.tool(
+  "yahoo-finance-historical-data",
+  {
+    symbol: z.string().describe("Stock symbol (e.g., 'AAPL', 'MSFT', 'TSLA')"),
+    period: z.enum(['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'ytd', 'max']).optional().default('1mo').describe("Time period for historical data")
+  },
+  async ({ symbol, period }) => {
+    try {
+      console.log(`Executing Yahoo Finance historical data lookup for: ${symbol}, period: ${period}`);
+      
+      // Check if the Yahoo Finance MCP server is available
+      const isAvailable = await yahooFinance.isYahooFinanceMcpAvailable();
+      if (!isAvailable) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({ 
+              error: "Yahoo Finance MCP server is not available. Please ensure it is running." 
+            }, null, 2)
+          }],
+          isError: true
+        };
+      }
+      
+      // Call the Yahoo Finance MCP integration service
+      return await yahooFinance.getHistoricalData({ symbol, period });
+    } catch (error) {
+      console.error("Yahoo Finance historical data lookup error:", error);
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Error fetching Yahoo Finance historical data: ${error.message}`
+        }],
+        isError: true
+      };
+    }
+  }
+);
+
 // Mock function - replace with actual Google Maps API call in production
 async function mockGoogleMapsSearch(query, location, type) {
   // Simulate network delay
@@ -252,117 +351,183 @@ async function mockWeatherSearch(location, days) {
 
 // Real implementation for SEC Filings search using SEC EDGAR API
 async function secFilingsSearch(company, filingType, limit = 5) {
-  // Input validation
-  if (!company || typeof company !== 'string') {
-    throw new Error('Company name or CIK is required');
-  }
-  
-  const axios = require('axios');
-  const fs = require('fs');
-  const path = require('path');
-  
-  // Set up cache directory
-  const cacheDir = path.join(__dirname, '..', '..', 'storage', 'sec_cache');
-  if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir, { recursive: true });
-  }
-  
-  // Rate limiting setup
-  const limiter = require('limiter');
-  const RateLimiter = limiter.RateLimiter;
-  // 10 requests per second as per SEC guidelines
-  const secRateLimiter = new RateLimiter({ tokensPerInterval: 10, interval: 'second' });
+  console.log(`Looking up company: "${company}" using SEC company tickers list`);
   
   try {
-    // Step 1: Try to determine if input is a CIK number or company name
-    let cik = null;
+    // Validate inputs
+    if (!company) {
+      throw new Error("Company name or ticker symbol is required");
+    }
     
-    // Check if input is a CIK number (all digits)
-    if (/^\d+$/.test(company)) {
-      // Pad with leading zeros to make 10 digits
-      cik = company.padStart(10, '0');
-    } else {
-      // Search for the company by name to get CIK
-      // First check cache
-      const cacheFile = path.join(cacheDir, `company_lookup_${company.replace(/[^\w]/g, '_')}.json`);
-      
-      if (fs.existsSync(cacheFile)) {
-        // Use cached data
-        const cachedData = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-        cik = cachedData.cik;
-      } else {
-        // Need to search for company - this is a simplified approach
-        // In a full implementation, you would use the SEC company search API
-        // For now, we'll throw an error and suggest using CIK directly
-        throw new Error(`Please provide a CIK number instead of company name "${company}". The SEC API does not support direct company name lookups.`);
+    // Normalize filing type
+    if (filingType) {
+      if (filingType.toLowerCase() === '10k' || filingType.toLowerCase() === 'annual report') {
+        filingType = '10-K';
+      } else if (filingType.toLowerCase() === '10q' || filingType.toLowerCase() === 'quarterly report') {
+        filingType = '10-Q';
+      } else if (filingType.toLowerCase() === '8k') {
+        filingType = '8-K';
       }
     }
     
-    // Step 2: Get company submissions
-    await secRateLimiter.removeTokens(1);
+    // Remove "please" from company name if present
+    if (company.toLowerCase().endsWith(' please')) {
+      company = company.substring(0, company.length - 7).trim();
+    }
     
-    const submissionsUrl = `https://data.sec.gov/submissions/CIK${cik}.json`;
-    const headers = {
-      'User-Agent': 'LLM Chat App AdminContact@example.com',  // Replace with your actual info
-      'Accept': 'application/json'
-    };
+    // Check cache for this query
+    const cacheKey = `sec_${company}_${filingType}`;
+    try {
+      const cachedResult = cache.get(cacheKey);
+      if (cachedResult) {
+        console.log(`Returning cached SEC filing search results for ${company}`);
+        return cachedResult;
+      }
+    } catch (cacheError) {
+      console.error('Cache error, continuing with live lookup:', cacheError);
+      // Continue with the search even if cache fails
+    }
     
-    const submissionsResponse = await axios.get(submissionsUrl, { headers });
+    // Implement basic rate limiting
+    const now = Date.now();
+    if (lastSECApiCall && now - lastSECApiCall < 1000) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    lastSECApiCall = Date.now();
     
-    // Save to cache
-    const submissionsCacheFile = path.join(cacheDir, `submissions_${cik}.json`);
-    fs.writeFileSync(submissionsCacheFile, JSON.stringify(submissionsResponse.data));
+    // Determine if input is CIK number or company name
+    const isCIK = /^\d+$/.test(company);
+    let companyInfo;
+    let ticker;
     
-    // Step 3: Process and filter the submissions data
-    const companyData = submissionsResponse.data;
-    const companyName = companyData.name || company;
-    const ticker = companyData.tickers?.[0] || 'N/A';
-    
-    let filings = [];
-    const filingTypes = filingType ? [filingType.toUpperCase()] : ["10-K", "10-Q", "8-K"];
-    
-    // Parse recent filings
-    if (companyData.filings && companyData.filings.recent) {
-      const recentFilings = companyData.filings.recent;
-      const forms = recentFilings.form || [];
-      const reportDates = recentFilings.reportDate || [];
-      const filingDates = recentFilings.filingDate || [];
-      const accessionNumbers = recentFilings.accessionNumber || [];
-      const primaryDocuments = recentFilings.primaryDocument || [];
-      
-      for (let i = 0; i < forms.length && filings.length < limit; i++) {
-        if (filingTypes.includes(forms[i])) {
-          const accessionNumber = accessionNumbers[i].replace(/-/g, '');
-          const filingUrl = `https://www.sec.gov/Archives/edgar/data/${cik}/${accessionNumber}/${primaryDocuments[i]}`;
+    try {
+      if (!isCIK) {
+        // Try to look up the company info by ticker or name
+        const response = await axios.get('https://www.sec.gov/files/company_tickers.json', {
+          headers: {
+            'User-Agent': userAgentString
+          },
+          timeout: 10000 // 10 second timeout
+        });
+        
+        const companies = Object.values(response.data);
+        
+        // Check if the input matches a ticker symbol (case insensitive)
+        const tickerMatch = companies.find(c => 
+          c.ticker.toLowerCase() === company.toLowerCase()
+        );
+        
+        // If no ticker match, check if the input is part of a company name
+        if (tickerMatch) {
+          companyInfo = tickerMatch;
+          ticker = tickerMatch.ticker;
+        } else {
+          // Try to find the company by name (partial match)
+          const nameMatch = companies.find(c => 
+            c.title.toLowerCase().includes(company.toLowerCase())
+          );
           
-          filings.push({
-            company_name: companyName,
-            ticker_symbol: ticker,
-            filing_type: forms[i],
-            filing_date: filingDates[i],
-            report_date: reportDates[i],
-            filing_url: filingUrl,
-            description: getFilingDescription(forms[i]),
-            filing_id: `${ticker}-${forms[i]}-${filingDates[i]}`,
-            accession_number: accessionNumbers[i],
-            has_downloadable_file: true
-          });
+          if (nameMatch) {
+            companyInfo = nameMatch;
+            ticker = nameMatch.ticker;
+          } else {
+            // No match found, try to get a suggestion
+            const suggestedCompany = await getSuggestedCompany(company, companies);
+            if (suggestedCompany) {
+              throw new Error(`Company "${company}" not found. Did you mean "${suggestedCompany.title}" (${suggestedCompany.ticker})?`);
+            } else {
+              throw new Error(`Company "${company}" not found. Try searching by CIK number or exact ticker symbol.`);
+            }
+          }
+        }
+      } else {
+        // Use the CIK directly
+        companyInfo = { cik_str: parseInt(company, 10) };
+      }
+
+      // Form the submissions URL
+      const cik = companyInfo.cik_str.toString().padStart(10, '0');
+      const submissionsUrl = `https://data.sec.gov/submissions/CIK${cik}.json`;
+      
+      console.log(`Fetching submissions for CIK: ${cik}`);
+      
+      // Fetch submissions data
+      const submissionsResponse = await axios.get(submissionsUrl, {
+        headers: {
+          'User-Agent': userAgentString
+        },
+        timeout: 15000 // 15 second timeout
+      });
+      
+      // Save submissions to cache file
+      const submissionsData = submissionsResponse.data;
+      
+      // Get recent filings with the requested type
+      const filings = [];
+      
+      if (submissionsData.filings && submissionsData.filings.recent) {
+        const recentFilings = submissionsData.filings.recent;
+        
+        if (recentFilings.form && recentFilings.form.length > 0) {
+          for (let i = 0; i < recentFilings.form.length; i++) {
+            if (!filingType || recentFilings.form[i] === filingType) {
+              if (filings.length < limit) {
+                const accessionNumber = recentFilings.accessionNumber[i];
+                const filing = {
+                  company_name: submissionsData.name,
+                  ticker_symbol: ticker || "Unknown",
+                  filing_type: recentFilings.form[i],
+                  filing_date: recentFilings.filingDate[i],
+                  report_date: recentFilings.reportDate[i] || recentFilings.filingDate[i],
+                  filing_url: `https://www.sec.gov/Archives/edgar/data/${submissionsData.cik}/${accessionNumber.replace(/-/g, '')}/` + 
+                              `${accessionNumber.replace(/-/g, '')}.txt`,
+                  description: getFilingDescription(recentFilings.form[i]),
+                  filing_id: `${ticker || submissionsData.cik}-${recentFilings.form[i]}-${recentFilings.filingDate[i]}`,
+                  accession_number: accessionNumber,
+                  has_downloadable_file: true
+                };
+                
+                filings.push(filing);
+              }
+            }
+          }
         }
       }
+      
+      if (filings.length === 0) {
+        throw new Error(`No ${filingType || ''} filings found for ${company}`);
+      }
+      
+      const result = {
+        status: "OK",
+        data: filings,
+        is_mock: false
+      };
+      
+      // Cache the result
+      try {
+        cache.set(cacheKey, result, 3600); // Cache for 1 hour
+      } catch (cacheError) {
+        console.error('Failed to cache SEC result:', cacheError);
+      }
+      
+      return result;
+    } catch (error) {
+      // Handle specific error cases with user-friendly messages
+      if (error.response && error.response.status === 429) {
+        throw new Error("SEC API rate limit exceeded. Please try again in a few minutes.");
+      } else if (error.code === 'ECONNABORTED') {
+        throw new Error("SEC API request timed out. The service may be experiencing high traffic.");
+      } else if (error.code === 'ENOTFOUND') {
+        throw new Error("Unable to connect to SEC API. Please check your internet connection.");
+      } else {
+        // Re-throw the original error with proper context
+        throw error;
+      }
     }
-    
-    return {
-      status: "OK",
-      data: filings
-    };
-    
   } catch (error) {
-    console.error('SEC API error:', error);
-    return {
-      status: "ERROR",
-      error: error.message,
-      data: []
-    };
+    console.error('Error looking up company information:', error);
+    throw error;
   }
 }
 
@@ -378,7 +543,7 @@ function getFilingDescription(filingType) {
     "DEF 14A": "Definitive Proxy Statement"
   };
   
-  return descriptions[filingType] || "SEC Filing";
+  return descriptions[filingType] || `${filingType} Filing`;
 }
 
 // Mock function for Companies House
@@ -549,125 +714,211 @@ server.getAvailableTools = function() {
       id: "companies-house", 
       name: "Companies House",
       description: "Search for UK company information from Companies House"
+    },
+    {
+      id: "yahoo-finance-stock-metric",
+      name: "Yahoo Finance Stock Metric",
+      description: "Get current stock metrics like price, market cap, P/E ratio, etc."
+    },
+    {
+      id: "yahoo-finance-historical-data",
+      name: "Yahoo Finance Historical Data",
+      description: "Get historical stock price data for a specific time period"
     }
   ];
 };
 
 server.callToolDirectly = async function(toolId, params) {
-  console.log(`Directly calling tool: ${toolId} with params:`, params);
+  console.log('Directly calling tool:', toolId, 'with params:', params);
+  
   try {
-    // This method allows for direct tool execution without going through 
-    // the MCP protocol negotiation
-    switch (toolId) {
-      case 'google-maps-search':
-        return {
-          content: [{ 
-            type: "text", 
-            text: JSON.stringify(await mockGoogleMapsSearch(
-              params.query, 
-              params.location, 
-              params.type
-            ), null, 2)
-          }]
-        };
-        
-      case 'google-weather':
-        return {
-          content: [{ 
-            type: "text", 
-            text: JSON.stringify(await mockWeatherSearch(
-              params.location, 
-              params.days
-            ), null, 2)
-          }]
-        };
-        
-      case 'sec-filings':
+    if (toolId === 'google-maps-search') {
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(await mockGoogleMapsSearch(
+            params.query, 
+            params.location, 
+            params.type
+          ), null, 2)
+        }]
+      };
+    } else if (toolId === 'google-weather') {
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(await mockWeatherSearch(
+            params.location, 
+            params.days
+          ), null, 2)
+        }]
+      };
+    } else if (toolId === 'yahoo-finance-stock-metric') {
+      // Call the Yahoo Finance integration service
+      return await yahooFinance.getStockMetric(params);
+    } else if (toolId === 'yahoo-finance-historical-data') {
+      // Call the Yahoo Finance integration service
+      return await yahooFinance.getHistoricalData(params);
+    } else if (toolId === 'sec-filings') {
+      try {
         if (params.download_id) {
-          // Handle file download if download_id is provided
-          const parts = params.download_id.split('-');
-          if (parts.length >= 3) {
-            const ticker = parts[0];
-            const filing_type = parts[1];
-            const filing_date = parts.slice(2).join('-');
+          // Handle file downloads
+          try {
+            const parts = params.download_id.split('|');
+            if (parts.length !== 3) {
+              return {
+                status: "ERROR",
+                error: "Invalid file download format",
+                data: []
+              };
+            }
             
+            const [ticker, filingType, filingDate] = parts;
             const filingData = {
-              company_name: params.company || `${ticker} Corporation`,
-              ticker_symbol: ticker,
-              filing_type,
-              filing_date,
-              description: filing_type === '10-K' ? 'Annual Report' : (filing_type === '10-Q' ? 'Quarterly Report' : 'Report'),
-              filing_url: `https://example.com/sec/${ticker}/${params.download_id}.pdf`,
-              filing_id: params.download_id
+              ticker,
+              filingType,
+              filingDate
             };
             
-            return await downloadSECFiling(filingData);
-          } else {
+            const downloadResult = await downloadSECFiling(filingData);
+            return downloadResult;
+          } catch (downloadError) {
+            console.error('SEC filing download error:', downloadError);
             return {
               status: "ERROR",
-              message: "Invalid filing ID format"
+              error: downloadError.message || "Failed to download SEC filing",
+              data: []
             };
           }
         } else {
           // Search for filings
-          return await secFilingsSearch(
-            params.company, 
-            params.filingType, 
-            params.limit
-          );
-        }
-        
-      case 'companies-house':
-        if (params.download_id) {
-          // Handle file download if download_id is provided
-          const parts = params.download_id.split('-');
-          if (parts.length >= 3 && parts[0] === 'CH') {
-            const company_number = parts[1];
-            const filing_date = parts.slice(2).join('-');
+          try {
+            // Validate inputs before making the request
+            if (!params.company || params.company.trim() === '') {
+              return {
+                status: "ERROR",
+                error: "Company name or ticker symbol is required",
+                data: [],
+                suggestion: "Please provide a company name like 'Apple' or ticker symbol like 'AAPL'"
+              };
+            }
             
-            const filingData = {
-              company_name: params.company || `UK Company ${company_number}`,
-              company_number,
-              filing_type: params.filingType || 'Company Filing',
-              filing_date,
-              filing_description: `${params.filingType || 'Company Filing'} for ${params.company || `UK Company ${company_number}`}`,
-              filing_url: `https://example.com/companies-house/${company_number}/${params.download_id}.pdf`,
-              filing_id: params.download_id
-            };
+            // Clean up company input
+            const companyName = params.company.trim()
+              .replace(/^can you (?:get|give|find|show|retrieve)(?: me)?\s+(?:the )?/, '')  // Remove prefixes like "can you give me the"
+              .replace(/^(the|for|from) /, '')                   // Remove leading "the", "for", "from"
+              .replace(/([ .,?!])?(please|thanks|thank you)$/, '') // Remove trailing "please", etc.
+              .replace(/'s$/i, '')                              // Remove possessive 's at the end
+              .trim();
             
-            return await downloadCompaniesHouseFiling(filingData);
-          } else {
+            console.log(`Processing SEC filing search for company: "${companyName}"`);
+            
+            // Search for real filings
+            try {
+              const result = await secFilingsSearch(companyName, params.filingType, params.limit);
+              return result;
+            } catch (lookupError) {
+              // Check if the error message contains a suggested company
+              const didYouMeanMatch = lookupError.message.match(/Did you mean "(.*?)" \((.*?)\)\?/);
+              if (didYouMeanMatch) {
+                const suggestedName = didYouMeanMatch[1];
+                const suggestedTicker = didYouMeanMatch[2];
+                
+                return {
+                  status: "ERROR",
+                  error: lookupError.message,
+                  data: [],
+                  errorDetails: {
+                    userQueryInfo: {
+                      providedCompany: companyName,
+                      providedFilingType: params.filingType,
+                      suggestedCompany: suggestedName,
+                      suggestedTicker: suggestedTicker
+                    },
+                    suggestion: `Try searching for "${suggestedName}" (${suggestedTicker}) instead.`
+                  }
+                };
+              }
+              
+              // If no suggestion, return the regular error
+              throw lookupError;
+            }
+          } catch (searchError) {
+            console.error('SEC filing search error:', searchError);
+            
+            // Provide a meaningful response without mock data
             return {
               status: "ERROR",
-              message: "Invalid filing ID format"
+              error: searchError.message || "Failed to search SEC filings",
+              data: [],
+              errorDetails: {
+                userQueryInfo: {
+                  providedCompany: params.company,
+                  providedFilingType: params.filingType
+                },
+                suggestion: "Please try searching with a different company name or ticker symbol. For example, use 'TSLA' or 'Tesla' for Tesla, Inc."
+              }
             };
           }
-        } else {
-          // Search for filings
-          return await mockCompaniesHouseSearch(
-            params.company, 
-            params.filingType, 
-            params.limit
-          );
         }
-        
-      default:
+      } catch (error) {
+        console.error('SEC filings tool error:', error);
         return {
-          content: [{ 
-            type: "text", 
-            text: `Unknown tool: ${toolId}`
-          }],
-          isError: true
+          status: "ERROR",
+          error: error.message || "An unexpected error occurred",
+          data: [],
+          errorDetails: {
+            userQueryInfo: {
+              providedCompany: params.company,
+              providedFilingType: params.filingType
+            },
+            suggestion: "Please try with a different query format."
+          }
         };
+      }
+    } else if (toolId === 'companies-house') {
+      if (params.download_id) {
+        // Handle file download if download_id is provided
+        const parts = params.download_id.split('-');
+        if (parts.length >= 3 && parts[0] === 'CH') {
+          const company_number = parts[1];
+          const filing_date = parts.slice(2).join('-');
+          
+          const filingData = {
+            company_name: params.company || `UK Company ${company_number}`,
+            company_number,
+            filing_type: params.filingType || 'Company Filing',
+            filing_date,
+            filing_description: `${params.filingType || 'Company Filing'} for ${params.company || `UK Company ${company_number}`}`,
+            filing_url: `https://example.com/companies-house/${company_number}/${params.download_id}.pdf`,
+            filing_id: params.download_id
+          };
+          
+          return await downloadCompaniesHouseFiling(filingData);
+        } else {
+          return {
+            status: "ERROR",
+            message: "Invalid filing ID format"
+          };
+        }
+      } else {
+        // Search for filings
+        return await mockCompaniesHouseSearch(
+          params.company, 
+          params.filingType, 
+          params.limit
+        );
+      }
     }
   } catch (error) {
-    console.error(`Error executing tool ${toolId} directly:`, error);
+    console.error(`Error calling tool ${toolId}:`, error);
+    // Return a properly structured error response for any uncaught error
     return {
-      content: [{ 
-        type: "text", 
-        text: `Error: ${error.message}`
-      }],
-      isError: true
+      status: "ERROR",
+      error: error.message || "An unknown error occurred",
+      errorDetails: {
+        toolId: toolId
+      }
     };
   }
 };
@@ -685,11 +936,23 @@ async function downloadSECFiling(filingData) {
       fs.mkdirSync(cacheDir, { recursive: true });
     }
     
-    // Rate limiting setup
-    const limiter = require('limiter');
-    const RateLimiter = limiter.RateLimiter;
-    // 10 requests per second as per SEC guidelines
-    const secRateLimiter = new RateLimiter({ tokensPerInterval: 10, interval: 'second' });
+    // Rate limiting setup - using a simple delay instead of the limiter package to prevent errors
+    const lastDownloadTime = downloadSECFiling.lastDownloadTime || 0;
+    const now = Date.now();
+    const timeSinceLastDownload = now - lastDownloadTime;
+    
+    // Wait if necessary to comply with SEC rate limits (10 requests per second)
+    if (timeSinceLastDownload < 100) { // 100ms = 10 requests per second
+      await new Promise(resolve => setTimeout(resolve, 100 - timeSinceLastDownload));
+    }
+    
+    // Update last download time
+    downloadSECFiling.lastDownloadTime = Date.now();
+    
+    // Email and name for User-Agent - replace with actual contact information
+    const contactEmail = process.env.SEC_CONTACT_EMAIL || 'AdminContact@example.com';
+    const appName = process.env.SEC_APP_NAME || 'LLM Chat App';
+    const userAgentString = `${appName} ${contactEmail}`;
     
     // Validate input
     if (!filingData || !filingData.filing_url) {
@@ -712,12 +975,9 @@ async function downloadSECFiling(filingData) {
       };
     }
     
-    // Wait for rate limiter token
-    await secRateLimiter.removeTokens(1);
-    
     // Download the filing
     const headers = {
-      'User-Agent': 'LLM Chat App AdminContact@example.com',  // Replace with your actual info
+      'User-Agent': userAgentString,
       'Accept': 'application/pdf,text/html,application/xhtml+xml'
     };
     
@@ -751,52 +1011,248 @@ async function downloadSECFiling(filingData) {
   } catch (error) {
     console.error('Error downloading SEC filing:', error);
     
-    // Fall back to generating a mock PDF
-    const mockPdfContent = Buffer.from(`%PDF-1.5
-1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>
-endobj
-4 0 obj
-<< /Length 150 >>
-stream
-BT
-/F1 12 Tf
-100 700 Td
-(MOCK SEC FILING - Error retrieving actual filing) Tj
-110 680 Td
-(Company: ${filingData.company_name || 'Unknown'}) Tj
-110 660 Td
-(Filing Type: ${filingData.filing_type || 'Unknown'}) Tj
-110 640 Td
-(Date: ${filingData.filing_date || 'Unknown'}) Tj
-110 620 Td
-(Error: ${error.message}) Tj
-ET
-endstream
-endobj
-trailer
-<< /Root 1 0 R /Size 5 >>
-startxref
-0
-%%EOF`);
-
-    return {
-      content: mockPdfContent,
-      fileName: `${filingData.ticker_symbol || 'unknown'}_${filingData.filing_type || 'filing'}_${filingData.filing_date || 'date'}.pdf`,
-      contentType: 'application/pdf'
-    };
+    // Instead of generating a mock PDF, throw a helpful error
+    throw new Error(`Unable to download the SEC filing: ${error.message}. Please check your network connection or try again later.`);
   }
 }
+
+// Convert MCP tools to OpenAI/Claude function calling format
+server.getFunctionDefinitions = function() {
+  const tools = [
+    { 
+      id: "google-maps-search", 
+      name: "google_maps_search",
+      description: "Search for locations and places using Google Maps",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "The search query for finding places"
+          },
+          location: {
+            type: "string",
+            description: "Optional location bias in 'latitude,longitude' format"
+          },
+          type: {
+            type: "string",
+            enum: ["restaurant", "cafe", "park", "museum", "hotel", "any"],
+            description: "Type of place to search for"
+          }
+        },
+        required: ["query"]
+      }
+    },
+    { 
+      id: "google-weather", 
+      name: "google_weather",
+      description: "Get weather information for a location",
+      parameters: {
+        type: "object",
+        properties: {
+          location: {
+            type: "string",
+            description: "Location to get weather for (city, address, or lat/lng)"
+          },
+          days: {
+            type: "integer",
+            description: "Number of days for forecast (1-7)"
+          }
+        },
+        required: ["location"]
+      }
+    },
+    { 
+      id: "sec-filings", 
+      name: "sec_filings",
+      description: "Search for SEC filings for a company",
+      parameters: {
+        type: "object",
+        properties: {
+          company: {
+            type: "string",
+            description: "Company name or ticker symbol"
+          },
+          filingType: {
+            type: "string",
+            enum: ["10-K", "10-Q", "8-K", "ALL"],
+            description: "Type of SEC filing to search for"
+          },
+          limit: {
+            type: "integer",
+            description: "Maximum number of results to return"
+          }
+        },
+        required: ["company"]
+      }
+    },
+    { 
+      id: "companies-house", 
+      name: "companies_house",
+      description: "Search for UK company information from Companies House",
+      parameters: {
+        type: "object",
+        properties: {
+          company: {
+            type: "string",
+            description: "Company name or registration number"
+          },
+          filingType: {
+            type: "string",
+            enum: ["ACCOUNTS", "ANNUAL_RETURN", "INCORPORATION", "OFFICERS", "CHARGES", "ALL"],
+            description: "Type of filing to search for"
+          },
+          limit: {
+            type: "integer",
+            description: "Maximum number of results to return"
+          }
+        },
+        required: ["company"]
+      }
+    },
+    {
+      id: "yahoo-finance-stock-metric",
+      name: "yahoo_finance_stock_metric",
+      description: "Get current stock metrics like price, market cap, P/E ratio, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: {
+            type: "string",
+            description: "Stock symbol (e.g., 'AAPL', 'MSFT', 'TSLA')"
+          },
+          metric: {
+            type: "string",
+            description: "Stock metric to retrieve (e.g., 'regularMarketPrice', 'marketCap', 'trailingPE')"
+          }
+        },
+        required: ["symbol", "metric"]
+      }
+    },
+    {
+      id: "yahoo-finance-historical-data",
+      name: "yahoo_finance_historical_data",
+      description: "Get historical stock price data for a specific time period",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: {
+            type: "string",
+            description: "Stock symbol (e.g., 'AAPL', 'MSFT', 'TSLA')"
+          },
+          period: {
+            type: "string",
+            enum: ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"],
+            description: "Time period for historical data"
+          }
+        },
+        required: ["symbol"]
+      }
+    }
+  ];
+  
+  return tools;
+};
+
+// Execute function called by LLM
+server.executeFunction = async function(functionName, args) {
+  console.log(`Executing LLM-called function: ${functionName} with args:`, args);
+  
+  try {
+    // Map the function name back to tool ID
+    const toolMapping = {
+      'google_maps_search': 'google-maps-search',
+      'google_weather': 'google-weather',
+      'sec_filings': 'sec-filings',
+      'companies_house': 'companies-house',
+      'yahoo_finance_stock_metric': 'yahoo-finance-stock-metric',
+      'yahoo_finance_historical_data': 'yahoo-finance-historical-data'
+    };
+    
+    const toolId = toolMapping[functionName];
+    if (!toolId) {
+      throw new Error(`Unknown function: ${functionName}`);
+    }
+    
+    // Call the appropriate tool with the arguments
+    const result = await this.callToolDirectly(toolId, args);
+    return result;
+  } catch (error) {
+    console.error(`Error executing function ${functionName}:`, error);
+    return {
+      status: "ERROR",
+      error: error.message || "An unknown error occurred",
+      errorDetails: {
+        functionName: functionName
+      }
+    };
+  }
+};
 
 // Export the MCP server instance
 module.exports = {
   mcpServer: server,
   secFilingsSearch,
-  downloadSECFiling
-}; 
+  downloadSECFiling,
+  getSuggestedCompany
+};
+
+// Helper function to get company suggestions when the exact match isn't found
+async function getSuggestedCompany(userInput, companies) {
+  // Convert common company name variations to their proper form
+  const commonCompanies = {
+    'google': 'Alphabet',
+    'alphabet': 'Alphabet',
+    'goog': 'Alphabet',
+    'googl': 'Alphabet',
+    'amazon': 'Amazon',
+    'amzn': 'Amazon',
+    'apple': 'Apple',
+    'aapl': 'Apple',
+    'microsoft': 'Microsoft',
+    'msft': 'Microsoft',
+    'meta': 'Meta Platforms',
+    'facebook': 'Meta Platforms',
+    'fb': 'Meta Platforms',
+    'meta platforms': 'Meta Platforms',
+    'tesla': 'Tesla',
+    'tsla': 'Tesla',
+    'nvidia': 'NVIDIA',
+    'nvda': 'NVIDIA',
+    'netflix': 'Netflix',
+    'nflx': 'Netflix',
+    'walmart': 'Walmart',
+    'wmt': 'Walmart'
+  };
+  
+  const normalizedInput = userInput.toLowerCase();
+  
+  // Check if it's a common company with a known mapping
+  if (commonCompanies[normalizedInput]) {
+    const targetName = commonCompanies[normalizedInput];
+    const matchedCompany = companies.find(c => 
+      c.title.includes(targetName)
+    );
+    if (matchedCompany) {
+      return matchedCompany;
+    }
+  }
+  
+  // Look for partial matches
+  const possibleMatches = companies.filter(c => {
+    const title = c.title.toLowerCase();
+    const ticker = c.ticker.toLowerCase();
+    
+    return title.includes(normalizedInput) || 
+           normalizedInput.includes(title) || 
+           ticker.includes(normalizedInput) ||
+           normalizedInput.includes(ticker);
+  });
+  
+  // Return the first potential match if any found
+  if (possibleMatches.length > 0) {
+    return possibleMatches[0];
+  }
+  
+  return null;
+} 
