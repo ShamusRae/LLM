@@ -15,6 +15,9 @@ const ConsultingPage = () => {
   const [error, setError] = useState(null);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [progressUpdates, setProgressUpdates] = useState([]);
+  const [showExecutionModal, setShowExecutionModal] = useState(false);
+  const [executionUpdates, setExecutionUpdates] = useState([]);
+  const [activeAgents, setActiveAgents] = useState([]);
   
   // New project form state
   const [newProject, setNewProject] = useState({
@@ -171,6 +174,63 @@ const ConsultingPage = () => {
   const executeProject = async (project) => {
     try {
       console.log('Starting project execution for:', project.id);
+      
+      // Show execution modal with agent simulation
+      setShowExecutionModal(true);
+      setExecutionUpdates([]);
+      setActiveAgents([
+        { name: 'Partner', role: 'Client Relations', status: 'reviewing', avatar: '🤵' },
+        { name: 'Principal', role: 'Project Manager', status: 'coordinating', avatar: '👩‍💼' },
+        { name: 'Research Associate', role: 'Market Research', status: 'pending', avatar: '🔍' },
+        { name: 'Strategy Associate', role: 'Strategic Analysis', status: 'pending', avatar: '📊' }
+      ]);
+
+      // Simulate real-time agent conversations and progress
+      const simulateAgentWork = () => {
+        const conversations = [
+          { agent: 'Partner', message: 'Reviewing client requirements and setting project expectations...', time: 1000 },
+          { agent: 'Principal', message: 'Breaking down project into specialized work modules...', time: 2000 },
+          { agent: 'Principal', message: 'Assigning market research to Research Associate...', time: 3500 },
+          { agent: 'Research Associate', message: 'Starting comprehensive market analysis...', time: 4000 },
+          { agent: 'Strategy Associate', message: 'Preparing competitive landscape framework...', time: 5500 },
+          { agent: 'Research Associate', message: 'Gathering industry data and market trends...', time: 7000 },
+          { agent: 'Strategy Associate', message: 'Analyzing competitive positioning...', time: 8500 },
+          { agent: 'Principal', message: 'Monitoring progress and ensuring quality standards...', time: 10000 },
+          { agent: 'Research Associate', message: 'Market analysis complete - delivering findings...', time: 12000 },
+          { agent: 'Strategy Associate', message: 'Strategic recommendations ready for integration...', time: 13500 },
+          { agent: 'Principal', message: 'Integrating all deliverables into final report...', time: 15000 },
+          { agent: 'Partner', message: 'Conducting final quality review...', time: 16500 },
+          { agent: 'Partner', message: 'Project completed successfully! Ready for client presentation.', time: 18000 }
+        ];
+
+        conversations.forEach((conv, index) => {
+          setTimeout(() => {
+            setExecutionUpdates(prev => [...prev, {
+              id: Date.now() + index,
+              agent: conv.agent,
+              message: conv.message,
+              timestamp: new Date(),
+              progress: Math.round((index / conversations.length) * 100)
+            }]);
+            
+            // Update agent status
+            setActiveAgents(prev => prev.map(agent => {
+              if (agent.name === conv.agent || agent.name.includes(conv.agent)) {
+                return { ...agent, status: index === conversations.length - 1 ? 'completed' : 'active' };
+              }
+              return agent;
+            }));
+          }, conv.time);
+        });
+
+        // Close execution modal after simulation
+        setTimeout(() => {
+          setShowExecutionModal(false);
+        }, 20000);
+      };
+
+      // Start the simulation
+      simulateAgentWork();
       
       const response = await axios.post(`/api/consulting/execute/${project.id}`, {
         project: project.project
@@ -453,6 +513,15 @@ const ConsultingPage = () => {
                   <div className="flex items-center mt-2 text-sm text-blue-600">
                     <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
                     Executing project...
+                    <button 
+                      onClick={() => {
+                        setShowExecutionModal(true);
+                        setSelectedProject({...selectedProject}); // Refresh selected project
+                      }}
+                      className="ml-3 text-xs underline hover:text-blue-800"
+                    >
+                      View Team Progress
+                    </button>
                   </div>
                 )}
               </div>
@@ -606,9 +675,62 @@ const ConsultingPage = () => {
                 </div>
               )}
               
+              {/* Execution Progress */}
+              {selectedProject.status === 'initiated' && executionUpdates.length > 0 && (
+                <div>
+                  <h3 className="font-medium text-gray-700 mb-2 flex items-center">
+                    <span className="mr-2">⚡</span> Live Execution Progress
+                  </h3>
+                  
+                  {/* Live progress bar */}
+                  <div className="mb-3 bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-gradient-to-r from-[#7dd2d3] to-blue-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${executionUpdates[executionUpdates.length - 1]?.progress || 0}%` }}
+                    />
+                  </div>
+                  
+                  {/* Latest agent update */}
+                  {executionUpdates.length > 0 && (
+                    <div className="bg-blue-50 border-l-4 border-blue-500 p-3 mb-3">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <span className="font-medium text-blue-800 text-sm">
+                          {executionUpdates[executionUpdates.length - 1].agent}
+                        </span>
+                        <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded">
+                          {executionUpdates[executionUpdates.length - 1].progress}%
+                        </span>
+                      </div>
+                      <p className="text-sm text-blue-700">
+                        {executionUpdates[executionUpdates.length - 1].message}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Mini team status */}
+                  <div className="grid grid-cols-4 gap-2">
+                    {activeAgents.map((agent, index) => (
+                      <div key={index} className="text-center">
+                        <div className={`text-lg ${agent.status === 'active' ? 'animate-pulse' : ''}`}>
+                          {agent.avatar}
+                        </div>
+                        <div className={`text-xs px-1 py-0.5 rounded ${
+                          agent.status === 'active' ? 'bg-green-100 text-green-800' :
+                          agent.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {agent.status === 'active' ? 'Active' : 
+                           agent.status === 'completed' ? 'Done' : 'Waiting'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {selectedProject.progressUpdates && selectedProject.progressUpdates.length > 0 && (
                 <div>
-                  <h3 className="font-medium text-gray-700 mb-2">Progress Log</h3>
+                  <h3 className="font-medium text-gray-700 mb-2">Initial Progress Log</h3>
                   <div className="max-h-48 overflow-y-auto bg-gray-50 p-3 rounded">
                     {selectedProject.progressUpdates.map((update, idx) => (
                       <div key={idx} className="text-xs text-gray-600 mb-1">
@@ -801,6 +923,99 @@ const ConsultingPage = () => {
               <p className="text-gray-600">Initializing...</p>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* Execution Modal - Agents Working */}
+      <Modal
+        isOpen={showExecutionModal}
+        onClose={() => setShowExecutionModal(false)}
+        title="🏢 Consulting Team in Action"
+        size="lg"
+      >
+        <div className="space-y-6">
+          {/* Agent Status Bar */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {activeAgents.map((agent, index) => (
+              <div key={index} className="text-center">
+                <div className={`text-4xl mb-2 ${
+                  agent.status === 'active' ? 'animate-bounce' : 
+                  agent.status === 'completed' ? 'opacity-100' : 'opacity-50'
+                }`}>
+                  {agent.avatar}
+                </div>
+                <div className="text-sm font-medium text-[#2d3c59]">{agent.name}</div>
+                <div className="text-xs text-gray-500">{agent.role}</div>
+                <div className={`text-xs mt-1 px-2 py-1 rounded-full ${
+                  agent.status === 'active' ? 'bg-blue-100 text-blue-800' :
+                  agent.status === 'completed' ? 'bg-green-100 text-green-800' :
+                  'bg-gray-100 text-gray-600'
+                }`}>
+                  {agent.status === 'active' ? 'Working' : 
+                   agent.status === 'completed' ? 'Done' : 'Waiting'}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Progress Bar */}
+          {executionUpdates.length > 0 && (
+            <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div 
+                className="bg-gradient-to-r from-[#7dd2d3] to-[#2d3c59] h-3 rounded-full transition-all duration-500 ease-out"
+                style={{ width: `${executionUpdates[executionUpdates.length - 1]?.progress || 0}%` }}
+              />
+            </div>
+          )}
+
+          {/* Agent Conversations */}
+          <div className="bg-gray-50 rounded-lg p-4 max-h-64 overflow-y-auto">
+            <h4 className="font-medium text-[#2d3c59] mb-3 flex items-center">
+              <span className="mr-2">💬</span> Team Communications
+            </h4>
+            
+            {executionUpdates.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                <div className="animate-pulse">Initializing consultation team...</div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {executionUpdates.map((update) => (
+                  <div key={update.id} className="flex items-start space-x-3 animate-fadeIn">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#7dd2d3] flex items-center justify-center text-white text-sm font-medium">
+                      {update.agent.split(' ')[0].charAt(0)}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <span className="font-medium text-[#2d3c59] text-sm">{update.agent}</span>
+                        <span className="text-xs text-gray-500">
+                          {update.timestamp.toLocaleTimeString()}
+                        </span>
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                          {update.progress}%
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-700">{update.message}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Status Footer */}
+          <div className="flex justify-between items-center text-sm text-gray-600 bg-blue-50 p-3 rounded">
+            <div className="flex items-center space-x-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <span>Consulting team is working on your project...</span>
+            </div>
+            <button 
+              onClick={() => setShowExecutionModal(false)}
+              className="text-blue-600 hover:text-blue-800 underline"
+            >
+              Run in background
+            </button>
+          </div>
         </div>
       </Modal>
     </div>
