@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import SettingsScreen from './components/SettingsScreen';
 import TeamPage from './pages/TeamPage';
+import ConsultingPage from './pages/ConsultingPage';
 import Logo from './components/Logo';
 import AgentWizard from './components/AgentWizard';
 import FlowEditor from './components/FlowEditor';
@@ -32,6 +33,9 @@ const App = () => {
                 <Link to="/teams" className="px-4 py-2 rounded-md bg-[#2e334e] hover:bg-[#7dd2d3] hover:text-[#2d3c59] transition-colors text-white">
                   👥 Teams
                 </Link>
+                <Link to="/consulting" className="px-4 py-2 rounded-md bg-[#2e334e] hover:bg-[#7dd2d3] hover:text-[#2d3c59] transition-colors text-white">
+                  🏢 Consulting
+                </Link>
                 <Link to="/agent-wizard" className="px-4 py-2 rounded-md bg-[#2e334e] hover:bg-[#7dd2d3] hover:text-[#2d3c59] transition-colors text-white">
                   🧙 Create Agent
                 </Link>
@@ -48,6 +52,7 @@ const App = () => {
             <Route path="/" element={<ChatPage />} />
             <Route path="/settings" element={<SettingsScreen />} />
             <Route path="/teams" element={<TeamPage />} />
+            <Route path="/consulting" element={<ConsultingPage />} />
             <Route path="/agent-wizard" element={<AgentWizard />} />
             <Route path="/automation" element={<FlowEditor />} />
             <Route path="*" element={<Navigate to="/" replace />} />

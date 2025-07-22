@@ -39,6 +39,7 @@ const mcpRoutes = require('./routes/mcp.routes');
 const teamRoutes = require('./routes/team.routes');
 const llmRoutes = require('./routes/llm.routes');
 const modelRoutes = require('./routes/model.routes');
+const consultingRoutes = require('./routes/consulting');
 const chooseAvatarController = require('./controllers/chooseAvatar.controller');
 
 // Register routes
@@ -49,6 +50,7 @@ app.use('/api/mcp', mcpRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/llm', llmRoutes);
 app.use('/api/model', modelRoutes);
+app.use('/api/consulting', consultingRoutes);
 app.post('/api/choose-avatar', chooseAvatarController.chooseAvatar);
 
 // Health check endpoint
