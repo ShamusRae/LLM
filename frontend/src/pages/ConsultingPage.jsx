@@ -54,13 +54,17 @@ const ConsultingPage = () => {
 
   const handleCreateProject = async () => {
     alert('Function called!');
+    alert('newProject.query value: "' + newProject.query + '"');
+    alert('newProject.query length: ' + newProject.query.length);
+    alert('newProject.query.trim() length: ' + newProject.query.trim().length);
     
     if (!newProject.query.trim()) {
+      alert('Query validation failed - query is empty!');
       setError('Please describe what you need help with');
       return;
     }
 
-    alert('About to set loading true');
+    alert('Validation passed - about to set loading true');
     setLoading(true);
     setError(null);
     
@@ -606,7 +610,11 @@ const ConsultingPage = () => {
             </label>
             <textarea
               value={newProject.query}
-              onChange={(e) => setNewProject({ ...newProject, query: e.target.value })}
+              onChange={(e) => {
+                console.log('Textarea onChange - new value:', e.target.value);
+                setNewProject({ ...newProject, query: e.target.value });
+                console.log('State updated, newProject.query should be:', e.target.value);
+              }}
               placeholder="E.g., I need a comprehensive market analysis for my fintech startup..."
               className="w-full p-3 border rounded-md resize-none h-24"
               required
