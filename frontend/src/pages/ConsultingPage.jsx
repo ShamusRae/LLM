@@ -241,7 +241,12 @@ const ConsultingPage = () => {
     });
   };
 
-  const getStatusColor = (status) => {
+  const getStatusColor = (status, project) => {
+    // If project is not feasible, show as not feasible regardless of status
+    if (project && project.project && project.project.feasible === false) {
+      return 'bg-red-100 text-red-800';
+    }
+    
     switch (status) {
       case 'initiated': return 'bg-blue-100 text-blue-800';
       case 'in_progress': return 'bg-yellow-100 text-yellow-800';
@@ -251,15 +256,18 @@ const ConsultingPage = () => {
     }
   };
 
+  const getStatusText = (status, project) => {
+    // If project is not feasible, show as not feasible regardless of status
+    if (project && project.project && project.project.feasible === false) {
+      return 'not feasible';
+    }
+    
+    return status;
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
-      {/* Debug Info - Remove this after testing */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mb-4 p-2 bg-yellow-100 text-xs font-mono">
-          Debug: showNewProjectModal={showNewProjectModal.toString()}, loading={loading.toString()}, 
-          error={error ? 'yes' : 'no'}, showProjectDetails={showProjectDetails.toString()}
-        </div>
-      )}
+
       
       {/* Header */}
       <div className="mb-8">
@@ -333,8 +341,8 @@ const ConsultingPage = () => {
                       {project.project?.title || project.query.substring(0, 80) + '...'}
                       {project.isTestProject && <span className="ml-2 text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">TEST</span>}
                     </h3>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-                      {project.status}
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status, project)}`}>
+                      {getStatusText(project.status, project)}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 mb-2">{project.context}</p>
@@ -354,8 +362,8 @@ const ConsultingPage = () => {
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h2 className="text-xl font-semibold text-[#2d3c59]">Project Details</h2>
-                <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${getStatusColor(selectedProject.status)}`}>
-                  {selectedProject.status}
+                <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${getStatusColor(selectedProject.status, selectedProject)}`}>
+                  {getStatusText(selectedProject.status, selectedProject)}
                 </span>
                 {selectedProject.status === 'initiated' && (
                   <div className="flex items-center mt-2 text-sm text-blue-600">
@@ -388,11 +396,25 @@ const ConsultingPage = () => {
               {selectedProject.project && (
                 <div>
                   <h3 className="font-medium text-gray-700 mb-2">Project Analysis</h3>
-                  <div className="bg-gray-50 p-3 rounded">
-                    <p><strong>Type:</strong> {selectedProject.project.consultingType}</p>
-                    <p><strong>Feasible:</strong> {selectedProject.project.feasible ? 'Yes' : 'No'}</p>
+                  <div className={`p-3 rounded ${selectedProject.project.feasible ? 'bg-green-50 border-l-4 border-green-500' : 'bg-red-50 border-l-4 border-red-500'}`}>
+                    <p><strong>Type:</strong> {selectedProject.project.consultingType || 'Analysis'}</p>
+                    <p><strong>Feasible:</strong> 
+                      <span className={selectedProject.project.feasible ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}>
+                        {selectedProject.project.feasible ? '✅ Yes' : '❌ No'}
+                      </span>
+                    </p>
                     {selectedProject.project.estimatedDuration && (
                       <p><strong>Duration:</strong> {selectedProject.project.estimatedDuration}</p>
+                    )}
+                    {!selectedProject.project.feasible && selectedProject.project.reason && (
+                      <div className="mt-2 p-2 bg-red-100 rounded">
+                        <p className="text-sm"><strong>Reason:</strong> {selectedProject.project.reason}</p>
+                      </div>
+                    )}
+                    {!selectedProject.project.feasible && selectedProject.project.suggestedAlternative && (
+                      <div className="mt-2 p-2 bg-yellow-100 rounded">
+                        <p className="text-sm"><strong>Alternative:</strong> {selectedProject.project.suggestedAlternative}</p>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -445,11 +467,48 @@ const ConsultingPage = () => {
                 </div>
               )}
               
-              {selectedProject.status === 'completed' && !selectedProject.execution && (
+              {selectedProject.status === 'completed' && !selectedProject.execution && selectedProject.project && selectedProject.project.feasible && (
                 <div className="bg-yellow-50 p-4 rounded border-l-4 border-yellow-400">
                   <p className="text-sm text-yellow-800">
                     ⚠️ Project marked as completed but execution results not found. This may be due to a processing error.
                   </p>
+                </div>
+              )}
+              
+              {selectedProject.project && !selectedProject.project.feasible && (
+                <div className="bg-red-50 p-4 rounded border-l-4 border-red-500">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                      <span className="text-2xl">❌</span>
+                    </div>
+                    <div className="ml-3">
+                      <h4 className="text-sm font-medium text-red-800 mb-1">Project Not Feasible</h4>
+                      <p className="text-sm text-red-700">
+                        Our analysis determined that this project is not feasible as initially requested. 
+                        {selectedProject.project.reason && (
+                          <span> Reason: {selectedProject.project.reason}</span>
+                        )}
+                      </p>
+                      {selectedProject.project.suggestedAlternative && (
+                        <div className="mt-2 p-2 bg-yellow-100 rounded">
+                          <p className="text-xs text-yellow-800">
+                            <strong>💡 Suggested Alternative:</strong> {selectedProject.project.suggestedAlternative}
+                          </p>
+                        </div>
+                      )}
+                      <div className="mt-3">
+                        <button 
+                          onClick={() => {
+                            setShowNewProjectModal(true);
+                            setShowProjectDetails(false);
+                          }}
+                          className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition-colors"
+                        >
+                          Create New Project
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
               
