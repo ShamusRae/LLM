@@ -65,6 +65,10 @@ exports.discoverAvailableModels = async () => {
     try {
       // Claude doesn't have a model list endpoint, so we use known available models
       const knownClaudeModels = [
+        // Claude 4 models (latest and best!)
+        { id: 'claude-opus-4-20250514', name: 'Claude 4 Opus' },
+        { id: 'claude-sonnet-4-20250514', name: 'Claude 4 Sonnet' },
+        // Claude 3 models (fallback)
         { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
         { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet' }, 
         { id: 'claude-3.5-sonnet-20240620', name: 'Claude 3.5 Sonnet' },

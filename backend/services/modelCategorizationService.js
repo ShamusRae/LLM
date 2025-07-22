@@ -247,8 +247,9 @@ Respond with a JSON object in this exact format:
   getFallbackCategory(model) {
     const modelName = (model.modelId || model.id).toLowerCase();
     
-    // Strategic: Best reasoning models (Claude 4 Opus, O3, older Claude Opus, best local)
-    if (modelName.includes('claude-4-opus-20250722') || 
+    // Strategic: Best reasoning models (Claude 4, O3, older Claude models, best local)
+    if (modelName.includes('claude-opus-4-20250514') || 
+        modelName.includes('claude-sonnet-4-20250514') ||
         modelName.includes('claude-3.5-sonnet-20240620') || 
         modelName.includes('claude-3-opus-20240229') ||
         modelName.includes('o3-') || modelName.includes('qwq') || 
@@ -353,7 +354,8 @@ Respond with a JSON object in this exact format:
     const modelName = model.modelId.toLowerCase();
     
     // Premium models get highest scores (2025+ models)
-    if (modelName.includes('claude-4-opus-20250722')) return 105; // Claude 4 - newest and best!
+    if (modelName.includes('claude-opus-4-20250514')) return 110; // Claude 4 Opus - absolute best!
+    if (modelName.includes('claude-sonnet-4-20250514')) return 108; // Claude 4 Sonnet - excellent balance!
     if (modelName.includes('claude-3.5-sonnet-20240620')) return 100;
     if (modelName.includes('gpt-4.1-2025-04-14')) return 98;
     if (modelName.includes('o3-mini')) return 95;
