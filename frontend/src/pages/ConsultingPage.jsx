@@ -535,8 +535,8 @@ const ConsultingPage = () => {
                 >
                   {/* Action buttons */}
                   <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                    {/* Report button - only show for completed projects */}
-                    {project.status === 'completed' && project.execution && project.execution.finalReport && (
+                    {/* Report button - only show for projects with final reports */}
+                    {project.execution && project.execution.finalReport && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -589,12 +589,12 @@ const ConsultingPage = () => {
                       {project.isTestProject && <span className="ml-2 text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">TEST</span>}
                     </h3>
                     <div className="flex items-center space-x-2">
-                      {/* Report icon for completed projects */}
-                      {project.status === 'completed' && project.execution && project.execution.finalReport && (
+                      {/* Report icon for projects with final reports */}
+                      {project.execution && project.execution.finalReport && (
                         <span className="text-blue-500" title="Report Available">📊</span>
                       )}
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status, project)}`}>
-                        {getStatusText(project.status, project)}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.execution?.finalReport ? 'completed' : project.status, project)}`}>
+                        {getStatusText(project.execution?.finalReport ? 'completed' : project.status, project)}
                       </span>
                     </div>
                   </div>
@@ -637,10 +637,10 @@ const ConsultingPage = () => {
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h2 className="text-xl font-semibold text-[#2d3c59]">Project Details</h2>
-                <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${getStatusColor(selectedProject.status, selectedProject)}`}>
-                  {getStatusText(selectedProject.status, selectedProject)}
+                <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${getStatusColor(selectedProject.execution?.finalReport ? 'completed' : selectedProject.status, selectedProject)}`}>
+                  {getStatusText(selectedProject.execution?.finalReport ? 'completed' : selectedProject.status, selectedProject)}
                 </span>
-                {selectedProject.status === 'initiated' && (
+                {selectedProject.status === 'initiated' && !selectedProject.execution?.finalReport && (
                   <div className="flex items-center mt-2 text-sm text-blue-600">
                     <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
                     Executing project...
@@ -704,7 +704,7 @@ const ConsultingPage = () => {
                 </div>
               )}
               
-              {/* Enhanced Final Report Display */}
+              {/* Enhanced Final Report Display - Show this FIRST if available */}
               {selectedProject.execution && selectedProject.execution.finalReport && (
                 <div className="space-y-6">
                   {/* Report Header */}
@@ -1031,8 +1031,8 @@ const ConsultingPage = () => {
                 </div>
               )}
               
-              {/* Execution Progress */}
-              {selectedProject.status === 'initiated' && executionUpdates.length > 0 && (
+              {/* Execution Progress - Only show if NO final report exists */}
+              {selectedProject.status === 'initiated' && executionUpdates.length > 0 && !selectedProject.execution?.finalReport && (
                 <div>
                   <h3 className="font-medium text-gray-700 mb-2 flex items-center">
                     <span className="mr-2">⚡</span> Live Execution Progress
