@@ -175,76 +175,100 @@ const ConsultingPage = () => {
     try {
       console.log('Starting project execution for:', project.id);
       
-      // Show execution modal with agent simulation
+      // Show execution modal with real backend tracking
       setShowExecutionModal(true);
       setExecutionUpdates([]);
       setActiveAgents([
         { name: 'Partner', role: 'Client Relations', status: 'reviewing', avatar: '🤵' },
-        { name: 'Principal', role: 'Project Manager', status: 'coordinating', avatar: '👩‍💼' },
+        { name: 'Principal', role: 'Project Manager', status: 'pending', avatar: '👩‍💼' },
         { name: 'Research Associate', role: 'Market Research', status: 'pending', avatar: '🔍' },
         { name: 'Strategy Associate', role: 'Strategic Analysis', status: 'pending', avatar: '📊' }
       ]);
 
-      // Simulate real-time agent conversations and progress
-      const simulateAgentWork = () => {
-        const conversations = [
-          { agent: 'Partner', message: 'Reviewing client requirements and setting project expectations...', time: 1000 },
-          { agent: 'Principal', message: 'Breaking down project into specialized work modules...', time: 2000 },
-          { agent: 'Principal', message: 'Assigning market research to Research Associate...', time: 3500 },
-          { agent: 'Research Associate', message: 'Starting comprehensive market analysis...', time: 4000 },
-          { agent: 'Strategy Associate', message: 'Preparing competitive landscape framework...', time: 5500 },
-          { agent: 'Research Associate', message: 'Gathering industry data and market trends...', time: 7000 },
-          { agent: 'Strategy Associate', message: 'Analyzing competitive positioning...', time: 8500 },
-          { agent: 'Principal', message: 'Monitoring progress and ensuring quality standards...', time: 10000 },
-          { agent: 'Research Associate', message: 'Market analysis complete - delivering findings...', time: 12000 },
-          { agent: 'Strategy Associate', message: 'Strategic recommendations ready for integration...', time: 13500 },
-          { agent: 'Principal', message: 'Integrating all deliverables into final report...', time: 15000 },
-          { agent: 'Partner', message: 'Conducting final quality review...', time: 16500 },
-          { agent: 'Partner', message: 'Project completed successfully! Ready for client presentation.', time: 18000 }
-        ];
-
-        conversations.forEach((conv, index) => {
-          setTimeout(() => {
-            setExecutionUpdates(prev => [...prev, {
-              id: Date.now() + index,
-              agent: conv.agent,
-              message: conv.message,
-              timestamp: new Date(),
-              progress: Math.round((index / conversations.length) * 100)
-            }]);
-            
-            // Update agent status
-            setActiveAgents(prev => prev.map(agent => {
-              if (agent.name === conv.agent || agent.name.includes(conv.agent)) {
-                return { ...agent, status: index === conversations.length - 1 ? 'completed' : 'active' };
-              }
-              return agent;
-            }));
-          }, conv.time);
-        });
-
-        // Close execution modal after simulation
-        setTimeout(() => {
-          setShowExecutionModal(false);
-        }, 20000);
-      };
-
-      // Start the simulation
-      simulateAgentWork();
+      // Start execution and poll for progress
+      let pollInterval;
       
+      // Start with initial progress updates
+      const addProgressUpdate = (phase, message, progress, agent = 'System') => {
+        setExecutionUpdates(prev => [...prev, {
+          id: Date.now() + Math.random(),
+          agent: agent,
+          message: message,
+          timestamp: new Date(),
+          progress: progress,
+          phase: phase
+        }]);
+      };
+      
+      // Poll for execution progress
+      const pollProgress = async () => {
+        try {
+          const statusResponse = await axios.get(`/api/consulting/status/${project.id}`);
+          if (statusResponse.data.status) {
+            const status = statusResponse.data.status;
+            
+            // Update based on backend status
+            if (status.phase === 'coordination_started') {
+              addProgressUpdate('coordination', 'Principal coordinating work modules...', 40, 'Principal');
+              setActiveAgents(prev => prev.map(agent => 
+                agent.name === 'Principal' ? { ...agent, status: 'active' } : agent
+              ));
+            } else if (status.phase === 'executing_module') {
+              addProgressUpdate('module', `Executing ${status.currentModule}...`, status.progress, 'Research Associate');
+              setActiveAgents(prev => prev.map(agent => 
+                agent.name.includes('Associate') ? { ...agent, status: 'active' } : agent
+              ));
+            } else if (status.phase === 'integrating_results') {
+              addProgressUpdate('integration', 'Principal integrating deliverables...', 80, 'Principal');
+            } else if (status.phase === 'completed') {
+              addProgressUpdate('completed', '🎉 All deliverables completed!', 100, 'Partner');
+              setActiveAgents(prev => prev.map(agent => ({ ...agent, status: 'completed' })));
+              clearInterval(pollInterval);
+            }
+          }
+        } catch (pollError) {
+          console.warn('Polling error (will continue):', pollError);
+        }
+      };
+      
+      // Start polling every 2 seconds
+      addProgressUpdate('starting', 'Initializing consulting team...', 5, 'System');
+      pollInterval = setInterval(pollProgress, 2000);
+      
+      // Make the main execution API call
       const response = await axios.post(`/api/consulting/execute/${project.id}`, {
         project: project.project
       });
 
       if (response.data.success) {
-        console.log('Project execution successful, updating state...');
+        console.log('✅ Project execution successful:', response.data);
+        
+        // Show final completion update
+        setExecutionUpdates(prev => [...prev, {
+          id: Date.now() + Math.random(),
+          agent: 'Partner',
+          message: '🎉 Project completed successfully! All deliverables ready for client presentation.',
+          timestamp: new Date(),
+          progress: 100,
+          phase: 'completed'
+        }]);
+
+        // Mark all agents as completed
+        setActiveAgents(prev => prev.map(agent => ({ ...agent, status: 'completed' })));
         
         // Update project with execution results
         const updatedProject = {
           ...project,
           execution: response.data.execution,
+          finalReport: response.data.execution?.finalReport,
+          deliverables: response.data.execution?.finalReport?.deliverables || [],
+          workModules: response.data.execution?.finalReport?.deliverables?.map(d => ({
+            ...d,
+            status: 'completed'
+          })) || project.project.workModules || [],
           progressUpdates: [...(project.progressUpdates || []), ...(response.data.progressUpdates || [])],
-          status: 'completed'
+          status: 'completed',
+          qualityScore: response.data.execution?.qualityScore || 0.85
         };
 
         // Update localStorage
@@ -253,16 +277,41 @@ const ConsultingPage = () => {
         localStorage.setItem('consulting_projects', JSON.stringify(updatedProjects));
         
         // Force state updates
-        setActiveProjects([...updatedProjects]); // Force new array reference
-        setSelectedProject({...updatedProject}); // Force new object reference
+        setActiveProjects([...updatedProjects]);
+        setSelectedProject({...updatedProject});
         
-        console.log('State updated, project completed:', updatedProject.status);
+        // Auto-close modal after showing completion
+        setTimeout(() => {
+          setShowExecutionModal(false);
+        }, 3000);
+        
+        console.log('✅ State updated, project completed:', updatedProject.status);
       }
     } catch (error) {
-      console.error('Error executing project:', error);
+      console.error('❌ Error executing project:', error);
+      
+      // Clean up polling
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+      
+      // Show error in execution modal
+      setExecutionUpdates(prev => [...prev, {
+        id: Date.now(),
+        agent: 'System',
+        message: `❌ Execution failed: ${error.response?.data?.message || error.message}`,
+        timestamp: new Date(),
+        progress: 0,
+        phase: 'error'
+      }]);
+      
       setError(error.response?.data?.message || 'Failed to execute project');
     } finally {
       setLoading(false);
+      // Final cleanup
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
     }
   };
 
