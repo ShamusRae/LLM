@@ -13,6 +13,8 @@ const ConsultingPage = () => {
   const [showProjectDetails, setShowProjectDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressUpdates, setProgressUpdates] = useState([]);
   
   // New project form state
   const [newProject, setNewProject] = useState({
@@ -53,20 +55,22 @@ const ConsultingPage = () => {
   };
 
   const handleCreateProject = async () => {
-    alert('Function called!');
-    alert('newProject.query value: "' + newProject.query + '"');
-    alert('newProject.query length: ' + newProject.query.length);
-    alert('newProject.query.trim() length: ' + newProject.query.trim().length);
-    
     if (!newProject.query.trim()) {
-      alert('Query validation failed - query is empty!');
       setError('Please describe what you need help with');
       return;
     }
-
-    alert('Validation passed - about to set loading true');
     setLoading(true);
     setError(null);
+    setProgressUpdates([]);
+    setShowProgressModal(true);
+    
+    // Add initial progress update
+    setProgressUpdates([{
+      phase: 'starting',
+      message: 'Preparing your consulting project...',
+      progress: 5,
+      timestamp: new Date()
+    }]);
     
     try {
       // Create project request
@@ -77,12 +81,24 @@ const ConsultingPage = () => {
         id: Date.now().toString()
       };
 
+      // Update progress
+      setProgressUpdates(prev => [...prev, {
+        phase: 'analyzing',
+        message: 'Analyzing project requirements...',
+        progress: 25,
+        timestamp: new Date()
+      }]);
+
       const response = await axios.post('/api/consulting/start', projectRequest);
       
-      // Add alert to see if we get here
-      alert('API call completed - success: ' + response.data.success);
-      
       if (response.data.success) {
+        // Update progress
+        setProgressUpdates(prev => [...prev, {
+          phase: 'completed',
+          message: 'Project analysis complete!',
+          progress: 100,
+          timestamp: new Date()
+        }]);
         // Save to localStorage for persistence
         const existingProjects = JSON.parse(localStorage.getItem('consulting_projects') || '[]');
         const projectWithResults = {
@@ -109,26 +125,11 @@ const ConsultingPage = () => {
           urgency: 'normal'
         });
 
-        // Close modal and clear loading - NUCLEAR OPTION
-        alert('About to close modal - trying multiple approaches');
+        // Close modals and clear loading
         setLoading(false);
         setShowNewProjectModal(false);
+        setShowProgressModal(false);
         setShowProjectDetails(true);
-        
-        // Force DOM manipulation as backup
-        setTimeout(() => {
-          const modal = document.querySelector('[role="dialog"], .fixed.inset-0');
-          if (modal) {
-            modal.remove();
-            alert('Forcibly removed modal from DOM');
-          }
-          
-          // Last resort - reload page
-          if (document.querySelector('.fixed.inset-0')) {
-            alert('Modal still there, reloading page...');
-            window.location.reload();
-          }
-        }, 100);
 
         // Start background execution if feasible
         if (response.data.project.status === 'initiated') {
@@ -138,10 +139,12 @@ const ConsultingPage = () => {
         }
       } else {
         setLoading(false);
+        setShowProgressModal(false);
         setError('Failed to create project: ' + (response.data.message || 'Unknown error'));
       }
     } catch (error) {
       setLoading(false);
+      setShowProgressModal(false);
       setError(error.response?.data?.message || 'Failed to create project');
     }
   };
@@ -610,11 +613,7 @@ const ConsultingPage = () => {
             </label>
             <textarea
               value={newProject.query}
-              onChange={(e) => {
-                console.log('Textarea onChange - new value:', e.target.value);
-                setNewProject({ ...newProject, query: e.target.value });
-                console.log('State updated, newProject.query should be:', e.target.value);
-              }}
+              onChange={(e) => setNewProject({ ...newProject, query: e.target.value })}
               placeholder="E.g., I need a comprehensive market analysis for my fintech startup..."
               className="w-full p-3 border rounded-md resize-none h-24"
               required
@@ -719,18 +718,58 @@ const ConsultingPage = () => {
               Cancel
             </button>
             <button
-              onClick={(e) => {
-                alert('Button clicked!');
-                e.preventDefault();
-                e.stopPropagation();
-                handleCreateProject();
-              }}
+              onClick={handleCreateProject}
               disabled={loading || !newProject.query.trim()}
               className="px-6 py-2 bg-[#2d3c59] text-white rounded-md hover:bg-opacity-90 transition-colors disabled:opacity-50"
             >
               {loading ? 'Creating...' : 'Start Project'}
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Progress Modal */}
+      <Modal
+        isOpen={showProgressModal}
+        onClose={() => {
+          setShowProgressModal(false);
+          setLoading(false);
+        }}
+        title="🚀 Creating Your Project"
+      >
+        <div className="space-y-4">
+          {progressUpdates.map((update, index) => (
+            <div key={index} className="border-l-4 border-[#7dd2d3] pl-4 py-2">
+              <div className="flex justify-between items-center mb-1">
+                <span className="font-medium text-[#2d3c59] capitalize">
+                  {update.phase.replace('_', ' ')}
+                </span>
+                <span className="text-sm text-gray-500">
+                  {update.progress}%
+                </span>
+              </div>
+              <p className="text-gray-600 text-sm mb-2">{update.message}</p>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-[#7dd2d3] h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${update.progress}%` }}
+                />
+              </div>
+              {index === progressUpdates.length - 1 && update.progress < 100 && (
+                <div className="flex items-center mt-2 text-sm text-blue-600">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                  Processing...
+                </div>
+              )}
+            </div>
+          ))}
+          
+          {progressUpdates.length === 0 && (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#2d3c59] mx-auto mb-4"></div>
+              <p className="text-gray-600">Initializing...</p>
+            </div>
+          )}
         </div>
       </Modal>
     </div>
