@@ -33,6 +33,20 @@ const ConsultingPage = () => {
 
   // Load active projects on component mount
   useEffect(() => {
+    // Clear any corrupted project data on load
+    try {
+      const projects = JSON.parse(localStorage.getItem('consulting_projects') || '[]');
+      const validProjects = projects.filter(project => 
+        project && project.id && typeof project.id === 'string' && project.id.length > 5
+      );
+      if (validProjects.length !== projects.length) {
+        console.log('Cleaned up corrupted project data');
+        localStorage.setItem('consulting_projects', JSON.stringify(validProjects));
+      }
+    } catch (error) {
+      console.log('Clearing corrupted localStorage data');
+      localStorage.removeItem('consulting_projects');
+    }
     loadActiveProjects();
   }, []);
 
@@ -457,12 +471,26 @@ const ConsultingPage = () => {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold text-[#2d3c59]">Active Projects</h2>
             {activeProjects.length > 0 && (
-              <button
-                onClick={clearAllProjects}
-                className="text-xs text-red-600 hover:text-red-800 underline"
-              >
-                Clear All
-              </button>
+              <div className="space-x-2">
+                <button
+                  onClick={clearAllProjects}
+                  className="text-xs text-red-600 hover:text-red-800 underline"
+                >
+                  Clear All
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('consulting_projects');
+                    setActiveProjects([]);
+                    setSelectedProject(null);
+                    setShowProjectDetails(false);
+                    window.location.reload(); // Force clean reload
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline"
+                >
+                  Force Reset
+                </button>
+              </div>
             )}
           </div>
           
@@ -643,8 +671,22 @@ const ConsultingPage = () => {
                     </h4>
                     <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
                       <p className="text-gray-800 leading-relaxed">
-                        {selectedProject.execution.finalReport.executiveSummary}
+                        {typeof selectedProject.execution.finalReport.executiveSummary === 'string' 
+                          ? selectedProject.execution.finalReport.executiveSummary
+                          : selectedProject.execution.finalReport.executiveSummary?.overview || 
+                            'Executive summary not available'}
                       </p>
+                      
+                      {selectedProject.execution.finalReport.executiveSummary?.keyTakeaways && (
+                        <div className="mt-4">
+                          <h5 className="font-semibold text-gray-800 mb-2">Key Takeaways:</h5>
+                          <ul className="list-disc list-inside space-y-1">
+                            {selectedProject.execution.finalReport.executiveSummary.keyTakeaways.map((takeaway, idx) => (
+                              <li key={idx} className="text-gray-700">{takeaway}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -687,7 +729,9 @@ const ConsultingPage = () => {
                         {selectedProject.execution.finalReport.keyFindings.map((finding, idx) => (
                           <div key={idx} className="flex items-start bg-yellow-50 p-3 rounded border-l-4 border-yellow-400">
                             <span className="text-yellow-600 mr-3 mt-0.5 font-bold">{idx + 1}.</span>
-                            <span className="text-gray-700">{finding}</span>
+                            <span className="text-gray-700">
+                              {typeof finding === 'string' ? finding : finding?.findings || finding?.description || JSON.stringify(finding)}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -700,18 +744,35 @@ const ConsultingPage = () => {
                       <h4 className="font-bold text-[#2d3c59] text-lg mb-4 flex items-center">
                         <span className="mr-2">💡</span> Strategic Recommendations
                       </h4>
-                      <div className="space-y-4">
-                        {selectedProject.execution.finalReport.recommendations.map((rec, idx) => (
-                          <div key={idx} className="bg-purple-50 border border-purple-200 p-4 rounded">
-                            <div className="flex items-center mb-2">
-                              <span className="bg-purple-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold mr-3">
-                                {idx + 1}
-                              </span>
-                              <span className="font-medium text-purple-800">Priority Recommendation</span>
+                                             <div className="space-y-4">
+                        {selectedProject.execution.finalReport.recommendations.map((rec, idx) => {
+                          const recText = typeof rec === 'string' ? rec : rec?.title || rec?.description || JSON.stringify(rec);
+                          const priority = typeof rec === 'object' ? rec?.priority || 'High' : 'High';
+                          
+                          return (
+                            <div key={idx} className="bg-purple-50 border border-purple-200 p-4 rounded">
+                              <div className="flex items-center mb-2">
+                                <span className="bg-purple-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold mr-3">
+                                  {idx + 1}
+                                </span>
+                                <span className="font-medium text-purple-800">{priority} Priority Recommendation</span>
+                              </div>
+                              <p className="text-gray-700 ml-11">{recText}</p>
+                              
+                              {typeof rec === 'object' && rec?.timeline && (
+                                <div className="mt-2 ml-11 text-sm text-gray-600">
+                                  <strong>Timeline:</strong> {rec.timeline}
+                                </div>
+                              )}
+                              
+                              {typeof rec === 'object' && rec?.impact && (
+                                <div className="mt-1 ml-11 text-sm text-gray-600">
+                                  <strong>Expected Impact:</strong> {rec.impact}
+                                </div>
+                              )}
                             </div>
-                            <p className="text-gray-700 ml-11">{rec}</p>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -722,17 +783,25 @@ const ConsultingPage = () => {
                       <h4 className="font-bold text-[#2d3c59] text-lg mb-4 flex items-center">
                         <span className="mr-2">🛣️</span> Implementation Roadmap
                       </h4>
-                      <div className="space-y-3">
-                        {selectedProject.execution.finalReport.implementationRoadmap.map((step, idx) => (
-                          <div key={idx} className="flex items-start">
-                            <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-[#7dd2d3] to-[#2d3c59] text-white rounded-full flex items-center justify-center font-bold mr-4 mt-1">
-                              {idx + 1}
+                                             <div className="space-y-3">
+                        {selectedProject.execution.finalReport.implementationRoadmap.map((step, idx) => {
+                          const stepText = typeof step === 'string' ? step : step?.description || step?.title || JSON.stringify(step);
+                          const timeline = typeof step === 'object' ? step?.timeline : null;
+                          
+                          return (
+                            <div key={idx} className="flex items-start">
+                              <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-r from-[#7dd2d3] to-[#2d3c59] text-white rounded-full flex items-center justify-center font-bold mr-4 mt-1">
+                                {idx + 1}
+                              </div>
+                              <div className="flex-1 bg-gray-50 p-3 rounded border-l-4 border-[#7dd2d3]">
+                                <span className="text-gray-800">{stepText}</span>
+                                {timeline && (
+                                  <div className="text-sm text-gray-600 mt-1">Timeline: {timeline}</div>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex-1 bg-gray-50 p-3 rounded border-l-4 border-[#7dd2d3]">
-                              <span className="text-gray-800">{step}</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -760,30 +829,34 @@ const ConsultingPage = () => {
                               </div>
                             </div>
                             <div className="p-4">
-                              <p className="text-gray-700 mb-3 italic">{deliverable.executiveSummary}</p>
+                              <p className="text-gray-700 mb-3 italic">
+                                {typeof deliverable.executiveSummary === 'string' 
+                                  ? deliverable.executiveSummary 
+                                  : deliverable.executiveSummary?.overview || 'Summary not available'}
+                              </p>
                               
-                              {deliverable.insights && deliverable.insights.length > 0 && (
+                              {deliverable.insights && Array.isArray(deliverable.insights) && deliverable.insights.length > 0 && (
                                 <div className="mb-3">
                                   <h6 className="font-medium text-gray-800 mb-2">💭 Key Insights:</h6>
                                   <ul className="text-sm text-gray-600 space-y-1">
                                     {deliverable.insights.map((insight, i) => (
                                       <li key={i} className="flex items-start">
                                         <span className="text-[#7dd2d3] mr-2">•</span>
-                                        <span>{insight}</span>
+                                        <span>{typeof insight === 'string' ? insight : insight?.description || JSON.stringify(insight)}</span>
                                       </li>
                                     ))}
                                   </ul>
                                 </div>
                               )}
                               
-                              {deliverable.recommendations && deliverable.recommendations.length > 0 && (
+                              {deliverable.recommendations && Array.isArray(deliverable.recommendations) && deliverable.recommendations.length > 0 && (
                                 <div>
                                   <h6 className="font-medium text-gray-800 mb-2">🎯 Specialist Recommendations:</h6>
                                   <ul className="text-sm text-gray-600 space-y-1">
                                     {deliverable.recommendations.map((rec, i) => (
                                       <li key={i} className="flex items-start">
                                         <span className="text-green-500 mr-2">→</span>
-                                        <span>{rec}</span>
+                                        <span>{typeof rec === 'string' ? rec : rec?.title || rec?.description || JSON.stringify(rec)}</span>
                                       </li>
                                     ))}
                                   </ul>
@@ -808,7 +881,9 @@ const ConsultingPage = () => {
                             {selectedProject.execution.finalReport.successMetrics.map((metric, idx) => (
                               <li key={idx} className="flex items-center bg-green-50 p-2 rounded">
                                 <span className="text-green-600 mr-2">📊</span>
-                                <span className="text-gray-700">{metric}</span>
+                                <span className="text-gray-700">
+                                  {typeof metric === 'string' ? metric : metric?.description || metric?.title || JSON.stringify(metric)}
+                                </span>
                               </li>
                             ))}
                           </ul>
@@ -824,7 +899,9 @@ const ConsultingPage = () => {
                             {selectedProject.execution.finalReport.riskMitigation.map((risk, idx) => (
                               <li key={idx} className="flex items-center bg-orange-50 p-2 rounded">
                                 <span className="text-orange-600 mr-2">🛡️</span>
-                                <span className="text-gray-700">{risk}</span>
+                                <span className="text-gray-700">
+                                  {typeof risk === 'string' ? risk : risk?.description || risk?.mitigation || JSON.stringify(risk)}
+                                </span>
                               </li>
                             ))}
                           </ul>
