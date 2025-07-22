@@ -94,20 +94,7 @@ const ConsultingPage = () => {
         setActiveProjects([...existingProjects]);
         setSelectedProject({...projectWithResults});
         
-        // Close modal immediately with multiple attempts
-        console.log('Closing modal...');
-        setShowNewProjectModal(false);
-        setShowProjectDetails(true);
-        setLoading(false); // Clear loading state
-        
-        // Force close modal after a short delay if it doesn't close
-        setTimeout(() => {
-          console.log('Force closing modal (fallback)');
-          setShowNewProjectModal(false);
-          setLoading(false);
-        }, 200);
-        
-        // Reset form
+        // Reset form immediately
         setNewProject({
           query: '',
           context: '',
@@ -117,26 +104,29 @@ const ConsultingPage = () => {
           urgency: 'normal'
         });
 
-        // If project is feasible, start execution (in background)
+        // Clear loading and close modal - single clean operation
+        setLoading(false);
+        setShowNewProjectModal(false);
+        setShowProjectDetails(true);
+        
+        console.log('Modal closed, project created successfully');
+
+        // If project is feasible, start execution (in background after UI is updated)
         if (response.data.project.status === 'initiated') {
           console.log('Starting project execution in background...');
-          // Execute project without blocking UI - use setTimeout to ensure modal closes first
           setTimeout(() => {
             executeProject(projectWithResults);
-          }, 500); // Longer timeout to ensure UI updates
+          }, 100); // Short delay to ensure UI updates complete
         }
       } else {
         console.error('Project creation failed:', response.data);
+        setLoading(false);
         setError('Failed to create project: ' + (response.data.message || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error creating project:', error);
+      setLoading(false);
       setError(error.response?.data?.message || 'Failed to create project');
-    } finally {
-      // Always clear loading and ensure modal can close
-      setTimeout(() => {
-        setLoading(false);
-      }, 100);
     }
   };
 
