@@ -198,7 +198,14 @@ const ConsultingPage = () => {
 
       // Make the main execution API call
       const response = await axios.post(`/api/consulting/execute/${project.id}`, {
-        project: project.project
+        project: {
+          id: project.id,
+          projectId: project.id,
+          status: 'initiated',
+          workModules: project.project.workModules || [],
+          requirements: project.project.requirements || {},
+          ...project.project
+        }
       });
       
       // Simulate progress during execution (since we don't have real-time updates)
