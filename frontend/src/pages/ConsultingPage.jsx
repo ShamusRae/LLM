@@ -53,11 +53,14 @@ const ConsultingPage = () => {
   };
 
   const handleCreateProject = async () => {
+    alert('Function called!');
+    
     if (!newProject.query.trim()) {
       setError('Please describe what you need help with');
       return;
     }
 
+    alert('About to set loading true');
     setLoading(true);
     setError(null);
     
@@ -102,12 +105,26 @@ const ConsultingPage = () => {
           urgency: 'normal'
         });
 
-        // Close modal and clear loading - direct approach
-        alert('About to close modal');
+        // Close modal and clear loading - NUCLEAR OPTION
+        alert('About to close modal - trying multiple approaches');
         setLoading(false);
         setShowNewProjectModal(false);
         setShowProjectDetails(true);
-        alert('Modal state set to false');
+        
+        // Force DOM manipulation as backup
+        setTimeout(() => {
+          const modal = document.querySelector('[role="dialog"], .fixed.inset-0');
+          if (modal) {
+            modal.remove();
+            alert('Forcibly removed modal from DOM');
+          }
+          
+          // Last resort - reload page
+          if (document.querySelector('.fixed.inset-0')) {
+            alert('Modal still there, reloading page...');
+            window.location.reload();
+          }
+        }, 100);
 
         // Start background execution if feasible
         if (response.data.project.status === 'initiated') {
@@ -694,7 +711,12 @@ const ConsultingPage = () => {
               Cancel
             </button>
             <button
-              onClick={handleCreateProject}
+              onClick={(e) => {
+                alert('Button clicked!');
+                e.preventDefault();
+                e.stopPropagation();
+                handleCreateProject();
+              }}
               disabled={loading || !newProject.query.trim()}
               className="px-6 py-2 bg-[#2d3c59] text-white rounded-md hover:bg-opacity-90 transition-colors disabled:opacity-50"
             >
