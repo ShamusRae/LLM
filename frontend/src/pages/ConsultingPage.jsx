@@ -92,13 +92,23 @@ const ConsultingPage = () => {
       const response = await axios.post('/api/consulting/start', projectRequest);
       
       if (response.data.success) {
-        // Update progress
-        setProgressUpdates(prev => [...prev, {
-          phase: 'completed',
-          message: 'Project analysis complete!',
-          progress: 100,
-          timestamp: new Date()
-        }]);
+        // Check if project was marked as infeasible
+        if (response.data.project && response.data.project.status === 'infeasible') {
+          setProgressUpdates(prev => [...prev, {
+            phase: 'infeasible',
+            message: 'Project marked as not feasible',
+            progress: 100,
+            timestamp: new Date()
+          }]);
+        } else {
+          // Update progress
+          setProgressUpdates(prev => [...prev, {
+            phase: 'completed',
+            message: 'Project analysis complete!',
+            progress: 100,
+            timestamp: new Date()
+          }]);
+        }
         // Save to localStorage for persistence
         const existingProjects = JSON.parse(localStorage.getItem('consulting_projects') || '[]');
         const projectWithResults = {
@@ -751,7 +761,9 @@ const ConsultingPage = () => {
               <p className="text-gray-600 text-sm mb-2">{update.message}</p>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div 
-                  className="bg-[#7dd2d3] h-2 rounded-full transition-all duration-300"
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    update.phase === 'infeasible' ? 'bg-red-500' : 'bg-[#7dd2d3]'
+                  }`}
                   style={{ width: `${update.progress}%` }}
                 />
               </div>

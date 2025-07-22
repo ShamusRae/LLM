@@ -321,6 +321,11 @@ Respond with a JSON object containing these fields.`;
         feasible = parsed.Feasible !== false;
       }
       
+      // TEMPORARY OVERRIDE: Force all projects to be feasible for testing
+      // This will help us test the UI while we debug the AI model responses
+      console.log('OVERRIDE: Forcing feasible to true for testing. Original AI response feasible:', feasible);
+      feasible = true;
+      
       const result = {
         feasible,
         estimatedDuration: parsed.estimatedDuration || parsed.ESTIMATED_DURATION || parsed['ESTIMATED DURATION'] || '4-6 weeks',
@@ -462,6 +467,7 @@ Respond with a JSON object containing these fields.`;
     const complexity = this.assessComplexity(requirements);
     const timeframe = requirements.constraints?.find(c => c.includes('Timeline:'))?.split(':')[1]?.trim();
     
+    console.log('Using fallback feasibility analysis - defaulting to feasible: true');
     return {
       feasible: true,
       estimatedDuration: timeframe || '4-6 weeks',
