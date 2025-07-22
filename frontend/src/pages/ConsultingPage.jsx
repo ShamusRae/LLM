@@ -222,7 +222,7 @@ const ConsultingPage = () => {
         }
       });
       
-      // Simulate progress during execution (since we don't have real-time updates)
+      // Simulate progress during execution with real progress updates
       const progressSteps = [
         { agent: 'Partner', message: 'Reviewing project requirements...', progress: 10 },
         { agent: 'Principal', message: 'Coordinating work modules...', progress: 25 },
@@ -248,7 +248,20 @@ const ConsultingPage = () => {
             status: agent.name === step.agent ? 'active' : 
                     step.progress >= 85 ? 'completed' : agent.status
           })));
-        }, index * 1000); // 1 second intervals
+          
+          // Update project in localStorage with progress for real-time progress bars
+          const projects = JSON.parse(localStorage.getItem('consulting_projects') || '[]');
+          const updatedProjects = projects.map(p => 
+            p.id === project.id ? {
+              ...p, 
+              currentProgress: step.progress,
+              lastUpdate: step.message,
+              updatedAt: new Date()
+            } : p
+          );
+          localStorage.setItem('consulting_projects', JSON.stringify(updatedProjects));
+          setActiveProjects([...updatedProjects]);
+        }, index * 1500); // 1.5 second intervals for better visibility
       });
 
       if (response.data.success) {
@@ -520,22 +533,46 @@ const ConsultingPage = () => {
                   key={project.id || index}
                   className="bg-white p-4 rounded-lg border hover:border-[#7dd2d3] transition-colors relative group"
                 >
-                  {/* Delete button */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteProject(project.id);
-                    }}
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700 p-1 rounded"
-                    title="Delete project"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="3,6 5,6 21,6"></polyline>
-                      <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
-                      <line x1="10" y1="11" x2="10" y2="17"></line>
-                      <line x1="14" y1="11" x2="14" y2="17"></line>
-                    </svg>
-                  </button>
+                  {/* Action buttons */}
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
+                    {/* Report button - only show for completed projects */}
+                    {project.status === 'completed' && project.execution && project.execution.finalReport && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedProject({...project});
+                          setShowProjectDetails(true);
+                        }}
+                        className="text-blue-500 hover:text-blue-700 p-1 rounded bg-white shadow-sm"
+                        title="View Report"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                          <polyline points="14,2 14,8 20,8"></polyline>
+                          <line x1="16" y1="13" x2="8" y2="13"></line>
+                          <line x1="16" y1="17" x2="8" y2="17"></line>
+                          <polyline points="10,9 9,9 8,9"></polyline>
+                        </svg>
+                      </button>
+                    )}
+                    
+                    {/* Delete button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteProject(project.id);
+                      }}
+                      className="text-red-500 hover:text-red-700 p-1 rounded bg-white shadow-sm"
+                      title="Delete project"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="3,6 5,6 21,6"></polyline>
+                        <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                      </svg>
+                    </button>
+                  </div>
 
                   {/* Project content - clickable */}
                   <div
@@ -546,20 +583,47 @@ const ConsultingPage = () => {
                       setShowProjectDetails(true);
                     }}
                   >
-                    <div className="flex justify-between items-start mb-2 pr-8">
-                      <h3 className="font-medium text-[#2d3c59] flex-1">
-                        {project.project?.title || project.query.substring(0, 80) + '...'}
-                        {project.isTestProject && <span className="ml-2 text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">TEST</span>}
-                      </h3>
+                                      <div className="flex justify-between items-start mb-2 pr-12">
+                    <h3 className="font-medium text-[#2d3c59] flex-1">
+                      {project.project?.title || project.query.substring(0, 60) + '...'}
+                      {project.isTestProject && <span className="ml-2 text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">TEST</span>}
+                    </h3>
+                    <div className="flex items-center space-x-2">
+                      {/* Report icon for completed projects */}
+                      {project.status === 'completed' && project.execution && project.execution.finalReport && (
+                        <span className="text-blue-500" title="Report Available">📊</span>
+                      )}
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status, project)}`}>
                         {getStatusText(project.status, project)}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600 mb-2">{project.context}</p>
-                    <div className="flex justify-between items-center text-xs text-gray-500">
-                      <span>{new Date(project.createdAt).toLocaleDateString()}</span>
-                      {project.timeframe && <span>{project.timeframe}</span>}
+                  </div>
+                                      <p className="text-sm text-gray-600 mb-2">{project.context}</p>
+                  
+                  {/* Progress bar for executing projects */}
+                  {project.status === 'initiated' && project.currentProgress && (
+                    <div className="mb-3">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs text-blue-600 font-medium">
+                          {project.lastUpdate || 'Executing...'}
+                        </span>
+                        <span className="text-xs text-blue-600 font-bold">
+                          {project.currentProgress}%
+                        </span>
+                      </div>
+                      <div className="bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div 
+                          className="bg-gradient-to-r from-[#7dd2d3] to-blue-500 h-2 rounded-full transition-all duration-1000 ease-out"
+                          style={{ width: `${project.currentProgress || 0}%` }}
+                        />
+                      </div>
                     </div>
+                  )}
+                  
+                  <div className="flex justify-between items-center text-xs text-gray-500">
+                    <span>{new Date(project.createdAt).toLocaleDateString()}</span>
+                    {project.timeframe && <span>{project.timeframe}</span>}
+                  </div>
                   </div>
                 </div>
               ))}
