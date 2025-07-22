@@ -152,20 +152,31 @@ REQUIREMENTS:
 ${JSON.stringify(requirements, null, 2)}
 
 FEASIBILITY ANALYSIS:
-Please assess:
+Please assess this project and respond with a JSON object containing exactly these fields:
 
-1. FEASIBLE: True/False - Is this project achievable?
-2. ESTIMATED DURATION: Realistic time estimate (e.g., "4-6 weeks")
-3. RESOURCE REQUIREMENTS: What skills/resources are needed?
-4. COMPLEXITY FACTORS: What makes this challenging?
-5. RISK ASSESSMENT: Key risks and mitigation strategies
-6. SUCCESS PROBABILITY: High/Medium/Low likelihood of success
-7. ALTERNATIVE APPROACHES: If not feasible, suggest alternatives
-8. REASON: If not feasible, explain why
-9. SUGGESTED ALTERNATIVE: Better approach if infeasible
+{
+  "feasible": true or false,
+  "estimatedDuration": "Realistic time estimate (e.g., '4-6 weeks')",
+  "resourceRequirements": ["List of required skills/resources"],
+  "complexityFactors": ["What makes this challenging"],
+  "riskAssessment": ["Key risks and mitigation strategies"],
+  "successProbability": "high/medium/low",
+  "alternativeApproaches": ["Alternative approaches if needed"],
+  "reason": "If not feasible, explain why",
+  "suggestedAlternative": "Better approach if infeasible"
+}
 
-Focus on realistic timeline, resource availability, and deliverable quality.
-Respond with a JSON object containing these fields.`;
+EVALUATION CRITERIA:
+- Is the scope clear and achievable?
+- Are the required resources available?
+- Is the timeline realistic?
+- Can we deliver quality results?
+
+For investment/comparison requests like NVIDIA vs AMD: These are typically FEASIBLE as market analysis projects.
+For strategic questions like Apple acquisitions: These are typically FEASIBLE as strategic consulting.
+
+Default to feasible: true unless there are major blocking issues.
+Respond ONLY with the JSON object.`;
   }
 
   /**
@@ -290,24 +301,52 @@ Respond with a JSON object containing these fields.`;
    */
   parseFeasibilityResponse(response, requirements) {
     try {
+      console.log('Raw feasibility analysis response:', response);
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
+        console.log('No JSON found in response, using fallback');
         return this.createFallbackFeasibilityAnalysis(requirements);
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
+      console.log('Parsed feasibility response:', parsed);
       
-      return {
-        feasible: parsed.feasible !== false,
-        estimatedDuration: parsed.estimatedDuration || '4-6 weeks',
-        resourceRequirements: Array.isArray(parsed.resourceRequirements) ? parsed.resourceRequirements : ['Business analysis', 'Research capabilities'],
-        complexityFactors: Array.isArray(parsed.complexityFactors) ? parsed.complexityFactors : ['Multiple stakeholders', 'Data requirements'],
-        riskAssessment: Array.isArray(parsed.riskAssessment) ? parsed.riskAssessment : ['Timeline pressure', 'Scope creep'],
-        successProbability: parsed.successProbability || 'medium',
-        alternativeApproaches: Array.isArray(parsed.alternativeApproaches) ? parsed.alternativeApproaches : [],
-        reason: parsed.reason || '',
-        suggestedAlternative: parsed.suggestedAlternative || ''
+      // Handle different possible field names for feasible (case-insensitive)
+      let feasible = true; // Default to feasible
+      if (parsed.feasible !== undefined) {
+        feasible = parsed.feasible !== false;
+      } else if (parsed.FEASIBLE !== undefined) {
+        feasible = parsed.FEASIBLE !== false;
+      } else if (parsed.Feasible !== undefined) {
+        feasible = parsed.Feasible !== false;
+      }
+      
+      const result = {
+        feasible,
+        estimatedDuration: parsed.estimatedDuration || parsed.ESTIMATED_DURATION || parsed['ESTIMATED DURATION'] || '4-6 weeks',
+        resourceRequirements: Array.isArray(parsed.resourceRequirements) ? parsed.resourceRequirements : 
+                             Array.isArray(parsed.RESOURCE_REQUIREMENTS) ? parsed.RESOURCE_REQUIREMENTS :
+                             Array.isArray(parsed['RESOURCE REQUIREMENTS']) ? parsed['RESOURCE REQUIREMENTS'] :
+                             ['Business analysis', 'Research capabilities'],
+        complexityFactors: Array.isArray(parsed.complexityFactors) ? parsed.complexityFactors : 
+                          Array.isArray(parsed.COMPLEXITY_FACTORS) ? parsed.COMPLEXITY_FACTORS :
+                          Array.isArray(parsed['COMPLEXITY FACTORS']) ? parsed['COMPLEXITY FACTORS'] :
+                          ['Multiple stakeholders', 'Data requirements'],
+        riskAssessment: Array.isArray(parsed.riskAssessment) ? parsed.riskAssessment :
+                       Array.isArray(parsed.RISK_ASSESSMENT) ? parsed.RISK_ASSESSMENT :
+                       Array.isArray(parsed['RISK ASSESSMENT']) ? parsed['RISK ASSESSMENT'] :
+                       ['Timeline pressure', 'Scope creep'],
+        successProbability: parsed.successProbability || parsed.SUCCESS_PROBABILITY || parsed['SUCCESS PROBABILITY'] || 'medium',
+        alternativeApproaches: Array.isArray(parsed.alternativeApproaches) ? parsed.alternativeApproaches :
+                              Array.isArray(parsed.ALTERNATIVE_APPROACHES) ? parsed.ALTERNATIVE_APPROACHES :
+                              Array.isArray(parsed['ALTERNATIVE APPROACHES']) ? parsed['ALTERNATIVE APPROACHES'] :
+                              [],
+        reason: parsed.reason || parsed.REASON || '',
+        suggestedAlternative: parsed.suggestedAlternative || parsed.SUGGESTED_ALTERNATIVE || parsed['SUGGESTED ALTERNATIVE'] || ''
       };
+      
+      console.log('Final feasibility result:', result);
+      return result;
 
     } catch (error) {
       console.warn('Failed to parse feasibility response, using fallback:', error);
