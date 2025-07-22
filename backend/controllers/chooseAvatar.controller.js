@@ -1,6 +1,5 @@
 'use strict';
 
-const avatarDecisionService = require('../services/avatarDecisionService');
 const { mcpServer } = require('../services/mcpService');
 
 exports.chooseAvatar = async (req, res) => {
@@ -10,8 +9,9 @@ exports.chooseAvatar = async (req, res) => {
       return res.status(400).json({ error: "No active avatars provided" });
     }
 
-    // Use the new decision service that constructs a prompt with chat history, avatar details, and the user message
-    const decision = await avatarDecisionService.decideAvatarOrder(chatHistory || [], activeAvatars, message);
+    // With the new team collaboration system, we don't need to pre-decide the order
+    // The team collaboration service will handle dynamic coordination
+    console.log('🤝 Team collaboration setup for', activeAvatars.length, 'avatars');
 
     // Get available tools from MCP server
     const availableTools = mcpServer.getAvailableTools();
@@ -32,16 +32,58 @@ exports.chooseAvatar = async (req, res) => {
       enabledTools = availableTools.map(tool => tool.id);
     }
     
-    // Return the result to the frontend with tool information
+    // Return team collaboration configuration
     res.json({
       success: true,
-      order: decision.order,
-      discussionRounds: decision.discussionRounds,
+      collaborationType: activeAvatars.length === 1 ? 'single_avatar' : 'dynamic_team',
+      teamSize: activeAvatars.length,
+      teamMembers: activeAvatars.map(avatar => ({
+        id: avatar.id,
+        name: avatar.name,
+        category: avatar.modelCategory || avatar.selectedModel || 'General',
+        role: avatar.role,
+        specialty: determineSpecialty(avatar)
+      })),
       enabledTools: enabledTools,
-      availableTools: availableTools
+      availableTools: availableTools,
+      message: activeAvatars.length > 1 ? 
+        'Team will collaborate dynamically based on expertise and context' : 
+        'Single avatar will handle the request'
     });
   } catch (error) {
     console.error("Error in chooseAvatar controller:", error);
     return res.status(500).json({ error: "Internal server error in chooseAvatar" });
   }
-}; 
+};
+
+/**
+ * Helper function to determine avatar specialty (matches TeamCollaborationService logic)
+ */
+function determineSpecialty(avatar) {
+  const category = avatar.modelCategory || avatar.selectedModel || 'General';
+  const role = (avatar.role || '').toLowerCase();
+  const skills = Array.isArray(avatar.skills) ? avatar.skills.join(' ').toLowerCase() : (avatar.skills || '').toLowerCase();
+
+  // Map categories to specialties
+  const categoryMap = {
+    'Strategic': 'high-level planning, complex reasoning, architectural decisions',
+    'General': 'balanced analysis, implementation, problem-solving',
+    'Rapid': 'quick optimizations, efficient solutions, performance improvements',
+    'Tactical': 'specialized expertise, security, edge cases, technical details'
+  };
+
+  let specialty = categoryMap[category] || 'general assistance';
+
+  // Enhance based on role and skills
+  if (role.includes('security') || skills.includes('security')) {
+    specialty = 'security analysis, vulnerability assessment, ' + specialty;
+  }
+  if (role.includes('design') || skills.includes('design')) {
+    specialty = 'system design, architecture, ' + specialty;
+  }
+  if (role.includes('data') || skills.includes('data')) {
+    specialty = 'data analysis, insights, ' + specialty;
+  }
+
+  return specialty;
+} 
