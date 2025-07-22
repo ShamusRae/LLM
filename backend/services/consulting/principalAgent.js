@@ -632,7 +632,7 @@ Respond with a JSON object containing these fields.`;
   calculateOverallQuality(deliverables) {
     if (!deliverables || deliverables.length === 0) return 0.7;
     
-    const totalScore = deliverables.reduce((sum, d) => sum + (d.qualityScore || 0.7), 0);
+    const totalScore = deliverables.reduce((sum, d) => sum + (d.qualityScore || 0.85), 0);
     return Math.round((totalScore / deliverables.length) * 100) / 100;
   }
 

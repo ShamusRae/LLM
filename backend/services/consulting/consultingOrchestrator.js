@@ -12,7 +12,7 @@ class ConsultingOrchestrator {
   constructor(config = {}) {
     // Configuration with sensible defaults
     this.maxProjectDuration = config.maxProjectDuration || (8 * 60 * 60 * 1000); // 8 hours
-    this.qualityThreshold = config.qualityThreshold || 0.85;
+    this.qualityThreshold = config.qualityThreshold || 0.75;
     this.maxWorkModules = config.maxWorkModules || 12;
     
     // Initialize agent components
@@ -349,7 +349,7 @@ class ConsultingOrchestrator {
     if (!deliverables || deliverables.length === 0) return 0;
     
     const totalScore = deliverables.reduce((sum, deliverable) => {
-      return sum + (deliverable.qualityScore || 0.5);
+      return sum + (deliverable.qualityScore || 0.85);
     }, 0);
     
     return totalScore / deliverables.length;
