@@ -91,6 +91,15 @@ const ConsultingPage = () => {
 
       const response = await axios.post('/api/consulting/start', projectRequest);
       
+      // DEBUG: Log the full response
+      console.log('=== CONSULTING API RESPONSE DEBUG ===');
+      console.log('Full response:', JSON.stringify(response.data, null, 2));
+      console.log('Project object:', response.data.project);
+      console.log('Project status:', response.data.project?.status);
+      console.log('Project feasible:', response.data.project?.feasible);
+      console.log('Project reason:', response.data.project?.reason);
+      console.log('=====================================');
+      
       if (response.data.success) {
         // Check if project was marked as infeasible
         if (response.data.project && response.data.project.status === 'infeasible') {
@@ -559,11 +568,21 @@ const ConsultingPage = () => {
                     <div className="ml-3">
                       <h4 className="text-sm font-medium text-red-800 mb-1">Project Not Feasible</h4>
                       <p className="text-sm text-red-700">
-                        Our analysis determined that this project is not feasible as initially requested. 
-                        {selectedProject.project.reason && (
-                          <span> Reason: {selectedProject.project.reason}</span>
-                        )}
+                        Our analysis determined that this project is not feasible as initially requested.
                       </p>
+                      
+                      {/* DEBUG: Show all feasibility data */}
+                      <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
+                        <p><strong>DEBUG INFO:</strong></p>
+                        <p><strong>Status:</strong> {selectedProject.project.status}</p>
+                        <p><strong>Feasible:</strong> {String(selectedProject.project.feasible)}</p>
+                        <p><strong>Reason:</strong> {selectedProject.project.reason || 'No reason provided'}</p>
+                        <p><strong>Suggested Alternative:</strong> {selectedProject.project.suggestedAlternative || 'None'}</p>
+                        <p><strong>Full Project Object:</strong></p>
+                        <pre className="text-xs bg-white p-1 mt-1 overflow-auto max-h-32">
+                          {JSON.stringify(selectedProject.project, null, 2)}
+                        </pre>
+                      </div>
                       {selectedProject.project.suggestedAlternative && (
                         <div className="mt-2 p-2 bg-yellow-100 rounded">
                           <p className="text-xs text-yellow-800">
