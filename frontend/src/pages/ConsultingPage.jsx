@@ -60,6 +60,7 @@ const ConsultingPage = () => {
 
     setLoading(true);
     setError(null);
+    console.log('Creating project...', newProject.query);
     
     try {
       // Create project request
@@ -70,9 +71,13 @@ const ConsultingPage = () => {
         id: Date.now().toString()
       };
 
+      console.log('Sending project request...');
       const response = await axios.post('/api/consulting/start', projectRequest);
+      console.log('Project creation response:', response.data);
       
       if (response.data.success) {
+        console.log('Project created successfully, updating state...');
+        
         // Save to localStorage for persistence
         const existingProjects = JSON.parse(localStorage.getItem('consulting_projects') || '[]');
         const projectWithResults = {
@@ -85,11 +90,22 @@ const ConsultingPage = () => {
         existingProjects.push(projectWithResults);
         localStorage.setItem('consulting_projects', JSON.stringify(existingProjects));
         
-        // Update state
-        setActiveProjects([...existingProjects]); // Force new array reference
-        setSelectedProject({...projectWithResults}); // Force new object reference
+        // Update state immediately
+        setActiveProjects([...existingProjects]);
+        setSelectedProject({...projectWithResults});
+        
+        // Close modal immediately with multiple attempts
+        console.log('Closing modal...');
         setShowNewProjectModal(false);
         setShowProjectDetails(true);
+        setLoading(false); // Clear loading state
+        
+        // Force close modal after a short delay if it doesn't close
+        setTimeout(() => {
+          console.log('Force closing modal (fallback)');
+          setShowNewProjectModal(false);
+          setLoading(false);
+        }, 200);
         
         // Reset form
         setNewProject({
@@ -101,22 +117,26 @@ const ConsultingPage = () => {
           urgency: 'normal'
         });
 
-        // Clear loading state before execution to allow modal to close
-        setLoading(false);
-
         // If project is feasible, start execution (in background)
         if (response.data.project.status === 'initiated') {
-          // Execute project without blocking UI
+          console.log('Starting project execution in background...');
+          // Execute project without blocking UI - use setTimeout to ensure modal closes first
           setTimeout(() => {
             executeProject(projectWithResults);
-          }, 100);
+          }, 500); // Longer timeout to ensure UI updates
         }
+      } else {
+        console.error('Project creation failed:', response.data);
+        setError('Failed to create project: ' + (response.data.message || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error creating project:', error);
       setError(error.response?.data?.message || 'Failed to create project');
     } finally {
-      setLoading(false);
+      // Always clear loading and ensure modal can close
+      setTimeout(() => {
+        setLoading(false);
+      }, 100);
     }
   };
 
@@ -233,6 +253,14 @@ const ConsultingPage = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
+      {/* Debug Info - Remove this after testing */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-4 p-2 bg-yellow-100 text-xs font-mono">
+          Debug: showNewProjectModal={showNewProjectModal.toString()}, loading={loading.toString()}, 
+          error={error ? 'yes' : 'no'}, showProjectDetails={showProjectDetails.toString()}
+        </div>
+      )}
+      
       {/* Header */}
       <div className="mb-8">
         <div className="flex justify-between items-center mb-4">
@@ -446,7 +474,12 @@ const ConsultingPage = () => {
       {/* New Project Modal */}
       <Modal
         isOpen={showNewProjectModal}
-        onClose={() => setShowNewProjectModal(false)}
+        onClose={() => {
+          console.log('Modal close requested');
+          setShowNewProjectModal(false);
+          setLoading(false); // Clear loading state when modal is closed
+          setError(null); // Clear any errors
+        }}
         title="🏢 New Consulting Project"
       >
         <div className="space-y-4">
