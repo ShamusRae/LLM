@@ -25,22 +25,11 @@ const ConsultingPage = () => {
   });
 
   const progressRef = useRef(null);
-  const [projectJustCreated, setProjectJustCreated] = useState(false);
 
   // Load active projects on component mount
   useEffect(() => {
     loadActiveProjects();
   }, []);
-
-  // Effect to handle modal closing when project is successfully created
-  useEffect(() => {
-    if (projectJustCreated && !loading) {
-      console.log('Project created successfully, closing modal via useEffect');
-      setShowNewProjectModal(false);
-      setShowProjectDetails(true);
-      setProjectJustCreated(false);
-    }
-  }, [projectJustCreated, loading]);
 
   // Refresh selected project when activeProjects changes
   useEffect(() => {
@@ -71,7 +60,6 @@ const ConsultingPage = () => {
 
     setLoading(true);
     setError(null);
-    console.log('Creating project...', newProject.query);
     
     try {
       // Create project request
@@ -82,15 +70,12 @@ const ConsultingPage = () => {
         id: Date.now().toString()
       };
 
-      console.log('Sending project request...');
       const response = await axios.post('/api/consulting/start', projectRequest);
-      console.log('Project creation response:', response.data);
-      console.log('Response success value:', response.data.success);
-      console.log('Response status:', response.status);
+      
+      // Add alert to see if we get here
+      alert('API call completed - success: ' + response.data.success);
       
       if (response.data.success) {
-        console.log('Project created successfully, updating state...');
-        
         // Save to localStorage for persistence
         const existingProjects = JSON.parse(localStorage.getItem('consulting_projects') || '[]');
         const projectWithResults = {
@@ -103,11 +88,11 @@ const ConsultingPage = () => {
         existingProjects.push(projectWithResults);
         localStorage.setItem('consulting_projects', JSON.stringify(existingProjects));
         
-        // Update state immediately
+        // Update state and close modal immediately
         setActiveProjects([...existingProjects]);
         setSelectedProject({...projectWithResults});
         
-        // Reset form immediately
+        // Reset form
         setNewProject({
           query: '',
           context: '',
@@ -117,29 +102,24 @@ const ConsultingPage = () => {
           urgency: 'normal'
         });
 
-        // Clear loading and trigger modal close via useEffect
-        console.log('Project created successfully, clearing loading and setting flag');
+        // Close modal and clear loading - direct approach
+        alert('About to close modal');
         setLoading(false);
-        setProjectJustCreated(true);
-        console.log('Loading cleared, useEffect should handle modal closing');
+        setShowNewProjectModal(false);
+        setShowProjectDetails(true);
+        alert('Modal state set to false');
 
-        // If project is feasible, start execution (in background after UI is updated)
+        // Start background execution if feasible
         if (response.data.project.status === 'initiated') {
-          console.log('Starting project execution in background...');
           setTimeout(() => {
             executeProject(projectWithResults);
-          }, 100); // Short delay to ensure UI updates complete
+          }, 100);
         }
       } else {
-        console.error('Project creation failed - response.data.success was not true');
-        console.error('Full response:', response.data);
         setLoading(false);
         setError('Failed to create project: ' + (response.data.message || 'Unknown error'));
       }
     } catch (error) {
-      console.error('Exception caught in handleCreateProject:', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
       setLoading(false);
       setError(error.response?.data?.message || 'Failed to create project');
     }
@@ -593,12 +573,12 @@ const ConsultingPage = () => {
 
       {/* New Project Modal */}
       <Modal
+        key={showNewProjectModal ? 'open' : 'closed'}
         isOpen={showNewProjectModal}
         onClose={() => {
-          console.log('Modal close requested');
           setShowNewProjectModal(false);
-          setLoading(false); // Clear loading state when modal is closed
-          setError(null); // Clear any errors
+          setLoading(false);
+          setError(null);
         }}
         title="🏢 New Consulting Project"
       >
