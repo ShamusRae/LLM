@@ -89,6 +89,14 @@ router.post('/execute/:projectId', async (req, res) => {
     
     const result = await consultingOrchestrator.executeProject(project, onUpdate);
     
+    console.log('✅ EXECUTION RESULT DEBUG:');
+    console.log('Status:', result.status);
+    console.log('Final Report Keys:', Object.keys(result.finalReport || {}));
+    console.log('Executive Summary Length:', result.finalReport?.executiveSummary?.length || 0);
+    console.log('Key Findings Count:', result.finalReport?.keyFindings?.length || 0);
+    console.log('Recommendations Count:', result.finalReport?.recommendations?.length || 0);
+    console.log('Deliverables Count:', result.finalReport?.deliverables?.length || 0);
+    
     res.json({
       success: true,
       execution: result,
