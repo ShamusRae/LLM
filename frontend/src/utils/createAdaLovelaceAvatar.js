@@ -14,7 +14,7 @@ export const createAdaLovelaceAvatar = () => {
     systemPrompt: 'You are Ada Lovelace, a brilliant mathematician and the world\'s first computer programmer. You excel at helping users understand and analyze data through predictive modeling. When provided with datasets, you expertly guide users through configuring and running predictive models, then help them interpret the results in clear, insightful ways.',
     undeletable: true,
     temperature: 0.3,
-    defaultModel: 'gpt-4',
+    modelCategory: 'Strategic',
     enabledTools: ['file-upload', 'code-execution'],
     availableTools: [
       { id: 'file-upload', name: 'Upload Files' },

@@ -2,15 +2,31 @@
 
 const aiService = require('./ai/aiService');
 const fileService = require('./fileService');
+const modelService = require('./modelService');
 
 async function getResponse(message, avatar, previousResponses = [], onUpdate, selectedFiles = []) {
-  const { name, role, description, skills, selectedModel } = avatar;
+  const { name, role, description, skills } = avatar;
   
-  // Extract provider and model from the selectedModel string (e.g., "openai:gpt-4")
-  const [providerName, modelId] = selectedModel.split(':');
+  // NEW: Use model categories instead of specific models
+  const modelCategory = avatar.modelCategory || avatar.selectedModel || 'General';
+  
+  // Resolve the actual model based on category (with offline preference if needed)
+  const isOfflinePreferred = process.env.OFFLINE_MODE === 'true' || !process.env.OPENAI_API_KEY;
+  let resolvedModelId;
+  
+  try {
+    resolvedModelId = await modelService.resolveAvatarModel(avatar, isOfflinePreferred);
+    console.log(`🎯 Resolved ${modelCategory} → ${resolvedModelId} for avatar ${name}`);
+  } catch (error) {
+    console.error(`❌ Model resolution failed for ${name}:`, error.message);
+    resolvedModelId = 'openai:gpt-4-turbo-preview'; // Fallback
+  }
+  
+  // Extract provider and model from resolved model ID  
+  const [providerName, modelId] = resolvedModelId.split(':');
 
   if (!providerName || !modelId) {
-    throw new Error(`Invalid selectedModel format: ${selectedModel}`);
+    throw new Error(`Invalid resolved model format: ${resolvedModelId}`);
   }
 
   // 1. Construct the System Message / Prompt with conversation history
@@ -146,14 +162,63 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
       onUpdate({ response: responseText, isThinking: false });
     }
 
+    // NEW: Check if escalation is suggested
+    const escalationCheck = modelService.checkForEscalation(modelCategory, responseText);
+    let escalationResponse = null;
+    
+    if (escalationCheck.shouldEscalate) {
+      console.log(`🚀 Auto-escalation triggered: ${modelCategory} → ${escalationCheck.targetCategory}`);
+      
+      try {
+        // Create escalated avatar with better model category
+        const escalatedAvatar = {
+          ...avatar,
+          modelCategory: escalationCheck.targetCategory
+        };
+        
+        // Get response from better model
+        const escalatedResult = await getResponse(message, escalatedAvatar, previousResponses, (update) => {
+          if (onUpdate && update.isThinking) {
+            onUpdate({
+              ...update,
+              response: `🚀 Escalating to ${escalationCheck.targetCategory} model for better results... ${update.response}`,
+              thinkingContent: `Auto-escalated from ${modelCategory} to ${escalationCheck.targetCategory}`
+            });
+          }
+        }, selectedFiles);
+        
+        if (escalatedResult?.responses?.[0]?.response) {
+          escalationResponse = {
+            ...escalatedResult.responses[0],
+            escalated: true,
+            originalModel: resolvedModelId,
+            escalatedFrom: modelCategory,
+            escalatedTo: escalationCheck.targetCategory,
+            escalationReason: escalationCheck.reason
+          };
+        }
+      } catch (escalationError) {
+        console.warn(`⚠️ Escalation failed: ${escalationError.message}, using original response`);
+      }
+    }
+
     return {
       responses: [{
         avatarId: avatar.id,
         avatarName: name,
-        response: responseText,
+        response: escalationResponse?.response || responseText,
         isThinking: false,
         provider: finalProviderName,
-        model: finalModelId
+        model: escalationResponse?.model || finalModelId,
+        category: escalationResponse?.escalatedTo || modelCategory,
+        // Include escalation metadata
+        ...(escalationResponse && {
+          escalated: true,
+          originalModel: resolvedModelId,
+          escalatedFrom: modelCategory,
+          escalatedTo: escalationResponse.escalatedTo,
+          escalationReason: escalationResponse.escalationReason
+        })
       }]
     };
 

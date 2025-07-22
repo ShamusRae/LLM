@@ -30,6 +30,10 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
     claude: []
   });
   
+  // NEW: State for categorized models and current resolved models
+  const [categorizedModels, setCategorizedModels] = useState(null);
+  const [avatarResolvedModels, setAvatarResolvedModels] = useState({});
+  
   // Add a state to track if we've loaded avatars
   const [avatarsLoaded, setAvatarsLoaded] = useState(false);
   // Add a state to track component visibility
@@ -84,7 +88,7 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
     };
   }, []);
 
-  // Load models
+  // Load models (legacy endpoint)
   useEffect(() => {
     console.log('Fetching models...');
     axios.get('/api/model/discover')
@@ -102,6 +106,62 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
         setModels({ ollama: [], openai: [], claude: [] });
       });
   }, []);
+
+  // NEW: Load categorized models
+  useEffect(() => {
+    console.log('🔍 Fetching categorized models...');
+    axios.get('/api/model/categorized')
+      .then(res => {
+        if (res.data?.success && res.data?.data) {
+          console.log('✅ Received categorized models:', res.data.data);
+          setCategorizedModels(res.data.data);
+        }
+      })
+      .catch(err => {
+        console.warn('⚠️ Could not fetch categorized models:', err.message);
+      });
+  }, []);
+
+  // NEW: Resolve current models for all avatars
+  const resolveAvatarModels = React.useCallback(async (avatarList) => {
+    if (!avatarList || avatarList.length === 0) return;
+
+    const resolved = {};
+    
+    for (const avatar of avatarList) {
+      try {
+        const response = await axios.post('/api/model/resolve-avatar', { 
+          avatar: avatar,
+          preferLocal: process.env.NODE_ENV === 'development' 
+        });
+        
+        if (response.data?.success) {
+          resolved[avatar.id] = {
+            category: response.data.avatar.category,
+            resolvedModel: response.data.resolvedModel,
+            timestamp: response.data.timestamp
+          };
+        }
+      } catch (error) {
+        console.warn(`Could not resolve model for avatar ${avatar.name}:`, error.message);
+        // Fallback display
+        resolved[avatar.id] = {
+          category: avatar.modelCategory || avatar.selectedModel || 'General',
+          resolvedModel: 'Not available',
+          timestamp: Date.now()
+        };
+      }
+    }
+    
+    setAvatarResolvedModels(resolved);
+  }, []);
+
+  // Resolve models whenever avatars change
+  useEffect(() => {
+    if (avatars && avatars.length > 0 && avatarsLoaded) {
+      resolveAvatarModels(avatars);
+    }
+  }, [avatars, avatarsLoaded, resolveAvatarModels]);
 
   // On mount, always force a refresh and set the mounted flag
   useEffect(() => {
@@ -957,8 +1017,22 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
                     <div className="flex-grow min-w-0">
                       <h3 className="font-semibold truncate">{avatar.name}</h3>
                       {avatar.role && <p className="text-gray-600 text-sm truncate">{avatar.role}</p>}
+                      
+                      {/* Show current model category only */}
+                      {avatarResolvedModels[avatar.id] && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          <span className="font-medium">
+                            {avatarResolvedModels[avatar.id].category === 'Strategic' && '🧠'}
+                            {avatarResolvedModels[avatar.id].category === 'General' && '⚖️'}
+                            {avatarResolvedModels[avatar.id].category === 'Rapid' && '⚡'}
+                            {avatarResolvedModels[avatar.id].category === 'Tactical' && '🎯'}
+                            {avatarResolvedModels[avatar.id].category}
+                          </span>
+                        </div>
+                      )}
+                      
                       {activeAvatars.some(a => a.id === avatar.id) && (
-                        <span className="text-sm text-green-600 font-semibold">Selected</span>
+                        <span className="text-sm text-green-600 font-semibold mt-1 block">✓ Selected</span>
                       )}
                     </div>
                   </div>

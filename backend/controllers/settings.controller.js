@@ -36,7 +36,7 @@ const initializeSettings = async () => {
           skills: ['Machine Learning', 'Natural Language Processing'],
           imagePrompt: 'A professional looking professor with glasses and a warm smile',
           imageUrl: null,
-          selectedModel: 'openai:gpt-4-turbo-preview'
+          modelCategory: 'General'
         }
       ]
     };
@@ -45,12 +45,70 @@ const initializeSettings = async () => {
   }
 };
 
+// Migrate avatars from selectedModel to modelCategory
+const migrateAvatarsToCategories = async (settings) => {
+  if (!settings.avatars || !Array.isArray(settings.avatars)) {
+    return settings;
+  }
+
+  let migrationNeeded = false;
+  const migratedAvatars = settings.avatars.map(avatar => {
+    // If avatar has selectedModel but no modelCategory, migrate it
+    if (avatar.selectedModel && !avatar.modelCategory) {
+      console.log(`🔄 Migrating avatar "${avatar.name}" from model to category system`);
+      
+      const migratedAvatar = {
+        ...avatar,
+        modelCategory: 'General', // Set all to General as requested
+        // Keep selectedModel for now for backwards compatibility
+        selectedModel: avatar.selectedModel 
+      };
+      
+      migrationNeeded = true;
+      return migratedAvatar;
+    }
+    
+    // If avatar has neither, set to General
+    if (!avatar.selectedModel && !avatar.modelCategory) {
+      const migratedAvatar = {
+        ...avatar,
+        modelCategory: 'General'
+      };
+      migrationNeeded = true;
+      return migratedAvatar;
+    }
+    
+    return avatar;
+  });
+
+  if (migrationNeeded) {
+    console.log(`✅ Migrated ${migratedAvatars.length} avatars to category system`);
+    return {
+      ...settings,
+      avatars: migratedAvatars
+    };
+  }
+
+  return settings;
+};
+
 // Get settings
 exports.getSettings = async (req, res) => {
   try {
     await initializeSettings();
-    const settings = await fs.readFile(settingsPath, 'utf8');
-    res.json(JSON.parse(settings));
+    let settings = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
+    
+    // Migrate avatars to category system if needed
+    const migratedSettings = await migrateAvatarsToCategories(settings);
+    
+    // Save migrated settings back to file if migration occurred
+    if (migratedSettings !== settings) {
+      await fs.writeFile(settingsPath, JSON.stringify(migratedSettings, null, 2));
+      console.log('💾 Saved migrated avatar settings');
+      settings = migratedSettings;
+    }
+    
+    res.json(settings);
   } catch (error) {
     console.error('Error reading settings:', error);
     res.status(500).json({ error: 'Failed to read settings' });

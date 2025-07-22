@@ -4,10 +4,17 @@ A sophisticated LLM chat application featuring multi-model support, MCP tool int
 
 ## 🌟 Key Features
 
-### **Multi-Model AI Support**
-- **OpenAI** (GPT-4, GPT-4o)
-- **Anthropic** (Claude 3.5 Sonnet, Claude 3 Opus)  
-- **Ollama** (Local models: QwQ, DeepSeek, etc.)
+### **Smart Model Categories**
+- **🧠 Strategic** - Advanced reasoning (GPT-4, Claude 3.5 Sonnet, QwQ)
+- **⚖️ General** - Everyday tasks (GPT-4o, Claude 3 Haiku, Llama 3.2)
+- **⚡ Rapid** - Fast responses (GPT-3.5, Phi3:mini, Gemma2:2b)
+- **🎯 Tactical** - Specialized/offline (DeepSeek-Coder, local models)
+
+### **Offline AI Capabilities**
+- **✈️ Plane Mode** - Works without internet using local Ollama models
+- **🚀 Auto-escalation** - Models suggest upgrades for complex tasks  
+- **🔄 Automatic fallback** - Seamless online/offline switching
+- **📊 Real-time model display** - See which AI is responding
 
 ### **Real-Time Data Integration (MCP)**
 - **✅ Yahoo Finance**: Live stock prices, market data, historical charts
@@ -41,8 +48,23 @@ A sophisticated LLM chat application featuring multi-model support, MCP tool int
 - **Node.js 18+**
 - **Python 3.8+** (for RD-Agent features)
 - **Git**
+- **Ollama** (optional, for offline AI capabilities)
 
 ### Installation
+
+#### Quick Start (with Offline AI Setup)
+```bash
+git clone https://github.com/ShamusRae/LLM.git
+cd LLM
+
+# Set up Ollama for offline AI (optional but recommended)
+./setup-ollama.sh
+
+# Start the application
+./start.sh
+```
+
+#### Manual Setup
 
 1. **Clone the repository**
 ```bash
@@ -50,15 +72,19 @@ git clone https://github.com/ShamusRae/LLM.git
 cd LLM
 ```
 
-2. **Set up environment variables**
+2. **Set up environment variables (optional)**
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your API keys:
+Edit `.env` with your API keys (or skip for Ollama-only setup):
 ```env
 OPENAI_API_KEY=your_openai_key_here
 ANTHROPIC_API_KEY=your_claude_key_here
+
+# Ollama configuration (automatically managed)
+OLLAMA_API_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2
 ```
 
 3. **Install dependencies**
@@ -75,6 +101,12 @@ cd ../frontend && npm install
 # From project root
 ./start.sh
 ```
+
+The startup script will automatically:
+- ✅ Check if Ollama is installed and running
+- ✅ Display available local models  
+- ✅ Offer to install essential models if needed
+- ✅ Start all services with proper port management
 
 The application will be available at:
 - **Frontend**: http://localhost:5173
@@ -167,6 +199,58 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Yahoo Finance** for real-time market data
 - **SEC.gov** for financial filings API
 - **Ollama** for local model hosting
+
+## 🤖 Ollama Management
+
+### **Setup Ollama for Offline AI**
+```bash
+# Interactive setup (recommended)
+./setup-ollama.sh
+
+# Manual installation
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve
+ollama pull llama3.2
+```
+
+### **Essential Ollama Commands**
+```bash
+# List installed models
+ollama list
+
+# Install recommended models
+ollama pull qwq           # Best reasoning model
+ollama pull llama3.2      # Balanced general model  
+ollama pull phi3:mini     # Fastest responses
+ollama pull deepseek-coder # Code specialist
+
+# Test a model
+ollama run llama3.2 "Hello, are you working?"
+
+# Remove a model
+ollama rm model-name
+```
+
+### **Troubleshooting**
+
+**🔴 "Ollama not accessible"**
+- Check if Ollama is running: `curl http://localhost:11434/api/version`
+- Start Ollama: `ollama serve` 
+- On macOS: `brew services start ollama`
+
+**📦 "No models found"**  
+- Install essential model: `ollama pull llama3.2`
+- Check installed models: `ollama list`
+
+**⚡ "Slow responses"**
+- Try smaller models: `phi3:mini` or `gemma2:2b`
+- Check available RAM: Models need 4-8GB+ RAM
+- Use faster storage (SSD recommended)
+
+**✈️ "Offline mode not working"**
+- Ensure at least one Ollama model is installed
+- Check that avatars use "Tactical" or "General" categories
+- Verify no internet firewall blocks local connections
 
 ## 🐛 Issues & Support
 

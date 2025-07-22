@@ -126,4 +126,4 @@ coverage/
 *.tgz
 
 # Yarn Integrity file
-.yarn-integrity 
+.yarn-integrity .env.*

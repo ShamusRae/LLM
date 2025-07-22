@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import AvatarList from './AvatarList';
 import TeamList from './TeamList';
+import ModelStatusBox from './ModelStatusBox';
 
 /**
  * Component that provides a tabbed interface for Avatars and Teams
@@ -38,8 +39,8 @@ const AvatarTeamTabs = ({ onAvatarToggle, activeAvatars, onTeamSelect }) => {
         </button>
       </div>
 
-      {/* Tab content - With fixed height and scrollable */}
-      <div className="flex-1 overflow-hidden h-[calc(100vh-350px)] min-h-[300px]">
+      {/* Tab content - With more space for avatars */}
+      <div className="flex-1 overflow-hidden h-[calc(100vh-240px)] min-h-[400px]">
         {activeTab === 'avatars' && (
           <div className="h-full overflow-y-auto">
             <AvatarList 
@@ -55,6 +56,11 @@ const AvatarTeamTabs = ({ onAvatarToggle, activeAvatars, onTeamSelect }) => {
             />
           </div>
         )}
+      </div>
+      
+      {/* Status box moved below tabs for more avatar space */}
+      <div className="flex-shrink-0 p-2 border-t bg-[#f7f7f6]">
+        <ModelStatusBox />
       </div>
     </div>
   );

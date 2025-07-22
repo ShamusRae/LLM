@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const aiService = require('../services/ai/aiService');
+const modelController = require('../controllers/model.controller');
 
-// Get available models from all providers
+// Get available models from all providers (legacy endpoint)
 router.get('/discover', async (req, res) => {
   try {
     const models = await aiService.discoverModels();
@@ -29,5 +30,14 @@ router.get('/discover', async (req, res) => {
     });
   }
 });
+
+// Get categorized models using AI analysis
+router.get('/categorized', modelController.discoverCategorizedModels);
+
+// Resolve the best model for an avatar
+router.post('/resolve-avatar', modelController.resolveAvatarModel);
+
+// Check if escalation is needed
+router.post('/check-escalation', modelController.checkEscalation);
 
 module.exports = router; 

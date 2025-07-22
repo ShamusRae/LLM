@@ -51,32 +51,32 @@ const EditAvatarForm = ({ formState, setFormState, handleSubmit, handleCancel, i
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Model Category
+              <span className="text-xs text-gray-500 ml-2">(AI will choose the best available model)</span>
+            </label>
             <select
-              value={formState.selectedModel || 'openai:gpt-4-turbo-preview'}
-              onChange={e => setFormState(prev => ({ ...prev, selectedModel: e.target.value }))}
+              value={formState.modelCategory || formState.selectedModel || 'General'}
+              onChange={e => setFormState(prev => ({ 
+                ...prev, 
+                modelCategory: e.target.value,
+                // Clear old selectedModel to fully migrate
+                selectedModel: undefined 
+              }))}
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               onMouseDown={handleMouseEvent}
               onMouseUp={handleMouseEvent}
               onMouseMove={handleMouseEvent}
             >
-              <option value="openai:gpt-4-turbo-preview">GPT-4 Turbo</option>
-              {models.openai?.map(model => (
-                <option key={model.id} value={`openai:${model.id}`}>
-                  {model.id}
-                </option>
-              ))}
-              {models.claude?.map(model => (
-                <option key={model.id} value={`claude:${model.id}`}>
-                  {model.id}
-                </option>
-              ))}
-              {models.ollama?.map(model => (
-                <option key={model.id} value={`ollama:${model.id}`}>
-                  {model.id}
-                </option>
-              ))}
+              <option value="Strategic">🧠 Strategic - Most capable for complex reasoning & analysis</option>
+              <option value="General">⚖️ General - Well-rounded for everyday tasks</option>
+              <option value="Rapid">⚡ Rapid - Fast & efficient for simple tasks</option>
+              <option value="Tactical">🎯 Tactical - Specialized/local models for specific needs</option>
             </select>
+            <p className="text-xs text-gray-600 mt-1">
+              The system automatically selects the best available model from this category. 
+              Models may auto-escalate to higher categories if needed.
+            </p>
           </div>
 
           <div>
