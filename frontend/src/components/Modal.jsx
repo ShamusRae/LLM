@@ -6,6 +6,9 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
   
   // Handle both old and new prop patterns
   const isModalOpen = isOpen !== undefined ? isOpen : true;
+  
+  // Debug logging
+  console.log('Modal render - isOpen:', isOpen, 'isModalOpen:', isModalOpen);
 
   useEffect(() => {
     const handleEscape = (e) => {

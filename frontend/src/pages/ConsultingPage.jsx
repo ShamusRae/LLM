@@ -25,11 +25,22 @@ const ConsultingPage = () => {
   });
 
   const progressRef = useRef(null);
+  const [projectJustCreated, setProjectJustCreated] = useState(false);
 
   // Load active projects on component mount
   useEffect(() => {
     loadActiveProjects();
   }, []);
+
+  // Effect to handle modal closing when project is successfully created
+  useEffect(() => {
+    if (projectJustCreated && !loading) {
+      console.log('Project created successfully, closing modal via useEffect');
+      setShowNewProjectModal(false);
+      setShowProjectDetails(true);
+      setProjectJustCreated(false);
+    }
+  }, [projectJustCreated, loading]);
 
   // Refresh selected project when activeProjects changes
   useEffect(() => {
@@ -74,6 +85,8 @@ const ConsultingPage = () => {
       console.log('Sending project request...');
       const response = await axios.post('/api/consulting/start', projectRequest);
       console.log('Project creation response:', response.data);
+      console.log('Response success value:', response.data.success);
+      console.log('Response status:', response.status);
       
       if (response.data.success) {
         console.log('Project created successfully, updating state...');
@@ -104,12 +117,11 @@ const ConsultingPage = () => {
           urgency: 'normal'
         });
 
-        // Clear loading and close modal - single clean operation
+        // Clear loading and trigger modal close via useEffect
+        console.log('Project created successfully, clearing loading and setting flag');
         setLoading(false);
-        setShowNewProjectModal(false);
-        setShowProjectDetails(true);
-        
-        console.log('Modal closed, project created successfully');
+        setProjectJustCreated(true);
+        console.log('Loading cleared, useEffect should handle modal closing');
 
         // If project is feasible, start execution (in background after UI is updated)
         if (response.data.project.status === 'initiated') {
@@ -119,12 +131,15 @@ const ConsultingPage = () => {
           }, 100); // Short delay to ensure UI updates complete
         }
       } else {
-        console.error('Project creation failed:', response.data);
+        console.error('Project creation failed - response.data.success was not true');
+        console.error('Full response:', response.data);
         setLoading(false);
         setError('Failed to create project: ' + (response.data.message || 'Unknown error'));
       }
     } catch (error) {
-      console.error('Error creating project:', error);
+      console.error('Exception caught in handleCreateProject:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       setLoading(false);
       setError(error.response?.data?.message || 'Failed to create project');
     }
