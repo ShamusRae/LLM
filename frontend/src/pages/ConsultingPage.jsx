@@ -31,6 +31,17 @@ const ConsultingPage = () => {
     loadActiveProjects();
   }, []);
 
+  // Refresh selected project when activeProjects changes
+  useEffect(() => {
+    if (selectedProject && activeProjects.length > 0) {
+      const updatedProject = activeProjects.find(p => p.id === selectedProject.id);
+      if (updatedProject && updatedProject.status !== selectedProject.status) {
+        console.log('Updating selected project due to status change:', updatedProject.status);
+        setSelectedProject({...updatedProject});
+      }
+    }
+  }, [activeProjects, selectedProject]);
+
   const loadActiveProjects = async () => {
     try {
       // For now, we'll manage projects in localStorage since we don't have persistence
@@ -75,8 +86,8 @@ const ConsultingPage = () => {
         localStorage.setItem('consulting_projects', JSON.stringify(existingProjects));
         
         // Update state
-        setActiveProjects(existingProjects);
-        setSelectedProject(projectWithResults);
+        setActiveProjects([...existingProjects]); // Force new array reference
+        setSelectedProject({...projectWithResults}); // Force new object reference
         setShowNewProjectModal(false);
         setShowProjectDetails(true);
         
@@ -90,9 +101,15 @@ const ConsultingPage = () => {
           urgency: 'normal'
         });
 
-        // If project is feasible, start execution
+        // Clear loading state before execution to allow modal to close
+        setLoading(false);
+
+        // If project is feasible, start execution (in background)
         if (response.data.project.status === 'initiated') {
-          executeProject(projectWithResults);
+          // Execute project without blocking UI
+          setTimeout(() => {
+            executeProject(projectWithResults);
+          }, 100);
         }
       }
     } catch (error) {
@@ -105,13 +122,15 @@ const ConsultingPage = () => {
 
   const executeProject = async (project) => {
     try {
-      setLoading(true);
+      console.log('Starting project execution for:', project.id);
       
       const response = await axios.post(`/api/consulting/execute/${project.id}`, {
         project: project.project
       });
 
       if (response.data.success) {
+        console.log('Project execution successful, updating state...');
+        
         // Update project with execution results
         const updatedProject = {
           ...project,
@@ -125,8 +144,11 @@ const ConsultingPage = () => {
         const updatedProjects = projects.map(p => p.id === project.id ? updatedProject : p);
         localStorage.setItem('consulting_projects', JSON.stringify(updatedProjects));
         
-        setActiveProjects(updatedProjects);
-        setSelectedProject(updatedProject);
+        // Force state updates
+        setActiveProjects([...updatedProjects]); // Force new array reference
+        setSelectedProject({...updatedProject}); // Force new object reference
+        
+        console.log('State updated, project completed:', updatedProject.status);
       }
     } catch (error) {
       console.error('Error executing project:', error);
@@ -273,7 +295,8 @@ const ConsultingPage = () => {
                   key={project.id || index}
                   className="bg-white p-4 rounded-lg border hover:border-[#7dd2d3] cursor-pointer transition-colors"
                   onClick={() => {
-                    setSelectedProject(project);
+                    console.log('Project clicked:', project.id, project.status);
+                    setSelectedProject({...project}); // Force new object reference
                     setShowProjectDetails(true);
                   }}
                 >
@@ -301,7 +324,18 @@ const ConsultingPage = () => {
         {selectedProject && showProjectDetails && (
           <div className="bg-white rounded-lg border p-6">
             <div className="flex justify-between items-start mb-4">
-              <h2 className="text-xl font-semibold text-[#2d3c59]">Project Details</h2>
+              <div>
+                <h2 className="text-xl font-semibold text-[#2d3c59]">Project Details</h2>
+                <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${getStatusColor(selectedProject.status)}`}>
+                  {selectedProject.status}
+                </span>
+                {selectedProject.status === 'initiated' && (
+                  <div className="flex items-center mt-2 text-sm text-blue-600">
+                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                    Executing project...
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => setShowProjectDetails(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -336,39 +370,58 @@ const ConsultingPage = () => {
                 </div>
               )}
               
-              {selectedProject.execution && (
+              {selectedProject.execution && selectedProject.execution.finalReport && (
                 <div>
-                  <h3 className="font-medium text-gray-700 mb-2">Final Report</h3>
-                  <div className="bg-gray-50 p-4 rounded max-h-96 overflow-y-auto">
-                    {selectedProject.execution.finalReport && (
+                  <h3 className="font-medium text-gray-700 mb-2 flex items-center">
+                    📋 Final Report
+                    <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                      Completed
+                    </span>
+                  </h3>
+                  <div className="bg-gray-50 p-4 rounded max-h-96 overflow-y-auto border-l-4 border-green-500">
+                    <h4 className="font-semibold mb-2 text-[#2d3c59]">Executive Summary</h4>
+                    <p className="mb-4 text-sm leading-relaxed">{selectedProject.execution.finalReport.executiveSummary}</p>
+                    
+                    {selectedProject.execution.finalReport.keyFindings && selectedProject.execution.finalReport.keyFindings.length > 0 && (
                       <>
-                        <h4 className="font-semibold mb-2">Executive Summary</h4>
-                        <p className="mb-3 text-sm">{selectedProject.execution.finalReport.executiveSummary}</p>
-                        
-                        {selectedProject.execution.finalReport.keyFindings && (
-                          <>
-                            <h4 className="font-semibold mb-2">Key Findings</h4>
-                            <ul className="list-disc list-inside mb-3 text-sm">
-                              {selectedProject.execution.finalReport.keyFindings.map((finding, idx) => (
-                                <li key={idx}>{finding}</li>
-                              ))}
-                            </ul>
-                          </>
-                        )}
-                        
-                        {selectedProject.execution.finalReport.recommendations && (
-                          <>
-                            <h4 className="font-semibold mb-2">Recommendations</h4>
-                            <ul className="list-disc list-inside text-sm">
-                              {selectedProject.execution.finalReport.recommendations.map((rec, idx) => (
-                                <li key={idx}>{rec}</li>
-                              ))}
-                            </ul>
-                          </>
-                        )}
+                        <h4 className="font-semibold mb-2 text-[#2d3c59]">Key Findings</h4>
+                        <ul className="list-disc list-inside mb-4 text-sm space-y-1">
+                          {selectedProject.execution.finalReport.keyFindings.map((finding, idx) => (
+                            <li key={idx} className="text-gray-700">{finding}</li>
+                          ))}
+                        </ul>
                       </>
                     )}
+                    
+                    {selectedProject.execution.finalReport.recommendations && selectedProject.execution.finalReport.recommendations.length > 0 && (
+                      <>
+                        <h4 className="font-semibold mb-2 text-[#2d3c59]">Recommendations</h4>
+                        <ul className="list-disc list-inside text-sm space-y-1">
+                          {selectedProject.execution.finalReport.recommendations.map((rec, idx) => (
+                            <li key={idx} className="text-gray-700">{rec}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    
+                    {selectedProject.execution.finalReport.qualityScore && (
+                      <div className="mt-4 pt-4 border-t border-gray-300">
+                        <p className="text-xs text-gray-600">
+                          Quality Score: <span className="font-semibold text-[#7dd2d3]">
+                            {Math.round(selectedProject.execution.finalReport.qualityScore * 100)}%
+                          </span>
+                        </p>
+                      </div>
+                    )}
                   </div>
+                </div>
+              )}
+              
+              {selectedProject.status === 'completed' && !selectedProject.execution && (
+                <div className="bg-yellow-50 p-4 rounded border-l-4 border-yellow-400">
+                  <p className="text-sm text-yellow-800">
+                    ⚠️ Project marked as completed but execution results not found. This may be due to a processing error.
+                  </p>
                 </div>
               )}
               
