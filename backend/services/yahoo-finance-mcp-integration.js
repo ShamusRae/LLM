@@ -19,8 +19,19 @@ async function getStockMetric(options) {
   try {
     console.log(`Fetching Yahoo Finance data for ${options.symbol}, metric: ${options.metric}`);
     
-    // Fetch the quote data from Yahoo Finance API
-    const quote = await yahooFinance.quote(options.symbol);
+    // Fetch the quote data from Yahoo Finance API with error handling
+    let quote;
+    try {
+      quote = await yahooFinance.quote(options.symbol);
+      
+      // Validate quote data exists
+      if (!quote || typeof quote !== 'object') {
+        throw new Error(`Invalid quote data received for ${options.symbol}`);
+      }
+    } catch (error) {
+      console.error(`Failed to fetch quote for ${options.symbol}:`, error.message);
+      throw new Error(`Unable to fetch stock data for ${options.symbol}: ${error.message}`);
+    }
     
     // Get additional info for metrics not in quote
     let info = {};
@@ -50,7 +61,13 @@ async function getStockMetric(options) {
       
       // Add some common fields when requesting price
       if (options.metric === 'currentPrice' || options.metric === 'regularMarketPrice') {
-        result.regularMarketChangePercent = allData.regularMarketChangePercent;
+        // Safely add additional price fields if they exist
+        if (allData.regularMarketChangePercent !== undefined) {
+          result.regularMarketChangePercent = allData.regularMarketChangePercent;
+        }
+        if (allData.regularMarketChange !== undefined) {
+          result.regularMarketChange = allData.regularMarketChange;
+        }
       }
       
       return {

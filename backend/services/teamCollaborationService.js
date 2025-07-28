@@ -9,61 +9,74 @@ class TeamCollaborationService {
   }
 
   /**
-   * Orchestrate a natural team collaboration
-   * @param {string} message - User's request
-   * @param {Array} activeAvatars - Available team members
-   * @param {Array} chatHistory - Previous conversation context
-   * @param {Function} onUpdate - Progress callback
-   * @param {Array} selectedFiles - Any attached files
-   * @returns {Object} Collaborative response
+   * Main orchestration method for team collaboration WITH INTERNET ACCESS
    */
-  async orchestrateCollaboration({ message, activeAvatars, chatHistory = [], onUpdate, selectedFiles = [] }) {
-    if (!activeAvatars || activeAvatars.length === 0) {
-      throw new Error('No active avatars for collaboration');
+  async orchestrateCollaboration({ message, activeAvatars, chatHistory = [], onUpdate, selectedFiles = [], functionDefinitions = [] }) {
+    // Validate required parameters
+    if (!message) {
+      throw new Error('Message is required for collaboration');
     }
-
-    // Single avatar - no collaboration needed
-    if (activeAvatars.length === 1) {
-      return this.singleAvatarResponse(message, activeAvatars[0], chatHistory, onUpdate, selectedFiles);
+    
+    if (!activeAvatars || !Array.isArray(activeAvatars) || activeAvatars.length === 0) {
+      throw new Error('At least one active avatar is required for collaboration');
     }
-
-    console.log('🤝 Starting team collaboration with', activeAvatars.length, 'avatars');
-
+    
+    // Ensure arrays are properly initialized
+    const safeActiveAvatars = Array.isArray(activeAvatars) ? activeAvatars : [];
+    const safeChatHistory = Array.isArray(chatHistory) ? chatHistory : [];
+    const safeSelectedFiles = Array.isArray(selectedFiles) ? selectedFiles : [];
+    const safeFunctionDefinitions = Array.isArray(functionDefinitions) ? functionDefinitions : [];
+    
+    console.log(`🤝 Starting team collaboration with ${safeActiveAvatars.length} avatars`);
+    
+    if (safeFunctionDefinitions.length > 0) {
+      console.log(`🌐 TEAM COLLABORATION: ${safeFunctionDefinitions.length} internet tools available for real data access`);
+    }
+    
     const collaboration = {
+      message,
+      activeAvatars: safeActiveAvatars,
+      chatHistory: safeChatHistory,
+      selectedFiles: safeSelectedFiles,
+      functionDefinitions: safeFunctionDefinitions, // 🌐 Pass internet access to team
+      responses: [],
       contributions: [],
-      currentPhase: 'initial_analysis',
       workingDocument: '',
+      currentPhase: 'analysis',
       completionSignals: 0,
-      teamMembers: this.categorizeTeamMembers(activeAvatars)
+      startTime: Date.now()
     };
 
-    // Phase 1: Initial analysis and task breakdown
-    const initialContributor = this.selectInitialContributor(message, collaboration.teamMembers);
-    console.log(`🎯 Selected ${initialContributor.name} (${initialContributor.role}) to start`);
-
-    let currentContributor = initialContributor;
     let contributionCount = 0;
+    const maxContributions = Math.min(this.maxContributions, safeActiveAvatars.length * 2);
 
-    while (contributionCount < this.maxContributions && collaboration.completionSignals < 2) {
+    while (contributionCount < maxContributions && collaboration.completionSignals < 2) {
       try {
         contributionCount++;
         
         if (onUpdate) {
           onUpdate({
             phase: collaboration.currentPhase,
-            contributor: currentContributor.name,
+            contributor: this.getNextContributor(safeActiveAvatars, contributionCount).name,
             progress: Math.min(contributionCount / 4, 1) * 100
           });
         }
 
-        // Get contribution from current avatar
+        // Get contribution from current avatar WITH INTERNET ACCESS
+        const currentContributor = this.getNextContributor(safeActiveAvatars, contributionCount);
+        
+        if (safeFunctionDefinitions.length > 0) {
+          console.log(`🌐 ${currentContributor.name} has access to ${safeFunctionDefinitions.length} internet tools`);
+        }
+        
         const contribution = await this.getTeamContribution({
           message,
           contributor: currentContributor,
           collaboration,
-          chatHistory,
-          selectedFiles,
-          contributionNumber: contributionCount
+          chatHistory: safeChatHistory,
+          selectedFiles: safeSelectedFiles,
+          contributionNumber: contributionCount,
+          functionDefinitions: safeFunctionDefinitions // 🌐 INTERNET ACCESS FOR INDIVIDUAL AVATARS
         });
 
         collaboration.contributions.push(contribution);
@@ -82,50 +95,40 @@ class TeamCollaborationService {
           break;
         }
 
-        if (nextAction.handoff && nextAction.handoff !== currentContributor.id) {
-          // Find the requested team member
-          const nextContributor = activeAvatars.find(a => a.id === nextAction.handoff) ||
-                                 this.findByRole(nextAction.handoffRole, collaboration.teamMembers);
-          
-          if (nextContributor && nextContributor.id !== currentContributor.id) {
-            console.log(`🔄 Handoff: ${currentContributor.name} → ${nextContributor.name}`);
-            currentContributor = nextContributor;
-          } else {
-            // If no specific handoff, pick next best contributor
-            currentContributor = this.selectNextContributor(collaboration, activeAvatars, currentContributor);
-          }
-        } else {
-          // Auto-select next contributor
-          currentContributor = this.selectNextContributor(collaboration, activeAvatars, currentContributor);
-        }
-
-        // Track completion signals
-        if (nextAction.qualityScore >= this.qualityThreshold) {
+        // Update phase based on contribution analysis
+        collaboration.currentPhase = nextAction.suggestedPhase || collaboration.currentPhase;
+        
+        if (nextAction.shouldComplete) {
           collaboration.completionSignals++;
         }
 
-        // Update phase if needed
-        if (contributionCount >= 2 && collaboration.currentPhase === 'initial_analysis') {
-          collaboration.currentPhase = 'collaborative_building';
-        }
-        if (contributionCount >= 4 && collaboration.currentPhase === 'collaborative_building') {
-          collaboration.currentPhase = 'final_polish';
-        }
-
       } catch (error) {
-        console.error(`Error in collaboration round ${contributionCount}:`, error);
+        console.error('Error in collaboration round:', error);
         break;
       }
     }
 
-    // Synthesize final response
+    // Generate final responses from all contributions
     const finalResponse = this.synthesizeTeamResponse(collaboration);
     
-    if (onUpdate) {
-      onUpdate({ complete: true });
-    }
+    return {
+      responses: finalResponse.responses,
+      collaborationType: finalResponse.collaborationType || 'parallel_analysis',
+      workingDocument: collaboration.workingDocument,
+      contributions: collaboration.contributions,
+      completionReason: collaboration.completionSignals >= 2 ? 'natural_completion' : 'max_iterations',
+      totalContributions: contributionCount,
+      duration: Date.now() - collaboration.startTime,
+      discussionRounds: finalResponse.discussionRounds || 1
+    };
+  }
 
-    return finalResponse;
+  /**
+   * Get next contributor in a simple round-robin fashion
+   */
+  getNextContributor(activeAvatars, contributionCount) {
+    const index = (contributionCount - 1) % activeAvatars.length;
+    return activeAvatars[index];
   }
 
   /**
@@ -220,7 +223,7 @@ class TeamCollaborationService {
   /**
    * Get a team-aware contribution from an avatar
    */
-  async getTeamContribution({ message, contributor, collaboration, chatHistory, selectedFiles, contributionNumber }) {
+  async getTeamContribution({ message, contributor, collaboration, chatHistory, selectedFiles, contributionNumber, functionDefinitions }) {
     // Lazy load to avoid circular dependency
     const avatarService = require('./avatarService');
     
@@ -233,7 +236,8 @@ class TeamCollaborationService {
       contributor,
       teamContext.history,
       null, // onUpdate handled at higher level
-      selectedFiles
+      selectedFiles,
+      functionDefinitions // 🌐 Pass internet access to avatar
     );
 
     // Extract the actual content
@@ -335,15 +339,16 @@ Your Contribution (#${contributionNumber}):`;
       isComplete: contribution.signals.isComplete,
       handoff: contribution.signals.handoff,
       handoffRole: contribution.signals.handoffRole,
-      qualityScore: this.assessQuality(contribution, collaboration)
+      qualityScore: this.assessQuality(contribution, collaboration),
+      shouldComplete: contribution.signals.isComplete || this.assessQuality(contribution, collaboration) >= this.qualityThreshold
     };
 
     // Look for specific handoff requests
-    if (contribution.signals.handoff) {
+    if (contribution.signals.handoff && collaboration.activeAvatars) {
       // Try to match to actual avatar name or find by role
-      const targetAvatar = collaboration.teamMembers.find(m => 
+      const targetAvatar = collaboration.activeAvatars.find(m => 
         m.name.toLowerCase().includes(contribution.signals.handoff.toLowerCase()) ||
-        m.category.toLowerCase() === contribution.signals.handoff.toLowerCase()
+        m.category?.toLowerCase() === contribution.signals.handoff.toLowerCase()
       );
       
       if (targetAvatar) {
@@ -436,14 +441,14 @@ Your Contribution (#${contributionNumber}):`;
       avatarId: contrib.avatarId,
       avatarName: contrib.avatarName,
       response: contrib.content,
-      round: Math.ceil(contrib.contributionNumber / collaboration.teamMembers.length),
-      imageUrl: collaboration.teamMembers.find(m => m.id === contrib.avatarId)?.imageUrl || null,
+      round: Math.ceil(contrib.contributionNumber / (collaboration.activeAvatars ? collaboration.activeAvatars.length : 1)),
+      imageUrl: collaboration.activeAvatars ? collaboration.activeAvatars.find(m => m.id === contrib.avatarId)?.imageUrl || null : null,
       isThinking: false
     }));
 
     return {
       responses,
-      discussionRounds: Math.ceil(collaboration.contributions.length / collaboration.teamMembers.length),
+      discussionRounds: Math.ceil(collaboration.contributions.length / (collaboration.activeAvatars ? collaboration.activeAvatars.length : 1)),
       collaborationType: 'dynamic_team',
       finalWorkingDocument: collaboration.workingDocument,
       completionReason: collaboration.completionSignals >= 2 ? 'quality_threshold' : 'contribution_limit'

@@ -4,7 +4,7 @@ const aiService = require('./ai/aiService');
 const fileService = require('./fileService');
 const modelService = require('./modelService');
 
-async function getResponse(message, avatar, previousResponses = [], onUpdate, selectedFiles = []) {
+async function getResponse(message, avatar, previousResponses = [], onUpdate, selectedFiles = [], functionDefinitions = []) {
   const { name, role, description, skills } = avatar;
   
   // NEW: Use model categories instead of specific models
@@ -29,6 +29,11 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
     throw new Error(`Invalid resolved model format: ${resolvedModelId}`);
   }
 
+  // 🌐 Log internet access availability
+  if (functionDefinitions.length > 0) {
+    console.log(`🌐 AVATAR ${name}: ${functionDefinitions.length} internet tools available for real data access`);
+  }
+
   // 1. Construct the System Message / Prompt with conversation history
   let systemMessage = `You are ${name}, ${role}. ${description || ''}\nYour skills include: ${Array.isArray(skills) ? skills.join(", ") : skills}\n\n`;
   
@@ -47,32 +52,37 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
     systemMessage += "\nPlease consider this conversation history when responding.\n\n";
   }
 
-  // 2. Get available MCP tools and convert them to function definitions
-  const { mcpServer } = require('./mcpService');
-  let functionDefinitions = [];
+  // 2. Get available function definitions for internet access
+  let availableFunctionDefinitions = [];
   let hasTools = false;
   
-  try {
-    // Get enabled tools from avatar configuration or use all available tools
-    const enabledTools = avatar.enabledTools || [];
-    const availableTools = mcpServer.getAvailableTools();
-    
-    // If avatar has specific tools enabled, filter to those, otherwise use all
-    const toolsToUse = enabledTools.length > 0 
-      ? availableTools.filter(tool => enabledTools.includes(tool.id))
-      : availableTools;
+  // 🌐 Use passed functionDefinitions (for consulting system) or get from MCP
+  if (functionDefinitions && functionDefinitions.length > 0) {
+    availableFunctionDefinitions = functionDefinitions;
+    hasTools = true;
+    console.log(`🌐 AVATAR ${name}: Using ${functionDefinitions.length} passed internet tools`);
+  } else {
+    // Fallback: Get from MCP for regular chat
+    try {
+      const { mcpServer } = require('./mcpService');
+      const enabledTools = avatar.enabledTools || [];
+      const availableTools = mcpServer.getAvailableTools();
       
-    if (toolsToUse.length > 0) {
-      functionDefinitions = mcpServer.getFunctionDefinitions().filter(func => 
-        toolsToUse.some(tool => tool.id === func.id)
-      );
-      hasTools = true;
-      
-      console.log(`Avatar ${name} has access to ${functionDefinitions.length} tools:`, 
-        functionDefinitions.map(f => f.name));
+      // If avatar has specific tools enabled, filter to those, otherwise use all
+      const toolsToUse = enabledTools.length > 0 
+        ? availableTools.filter(tool => enabledTools.includes(tool.id))
+        : availableTools;
+        
+      if (toolsToUse.length > 0) {
+        availableFunctionDefinitions = mcpServer.getFunctionDefinitions().filter(func => 
+          toolsToUse.some(tool => tool.id === func.id)
+        );
+        hasTools = true;
+        console.log(`Avatar ${name} has access to ${availableFunctionDefinitions.length} MCP tools`);
+      }
+    } catch (error) {
+      console.warn('Could not load MCP tools:', error.message);
     }
-  } catch (error) {
-    console.warn('Could not load MCP tools:', error.message);
   }
 
   // 3. Prepare the user's message, embedding file content if necessary
@@ -144,7 +154,7 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
     const response = await provider.generateResponse(userMessage, {
       model: finalModelId,
       systemMessage: systemMessage,
-      functionDefinitions: hasTools ? functionDefinitions : undefined, // Pass function definitions if tools are available
+      functionDefinitions: hasTools ? availableFunctionDefinitions : undefined, // Pass function definitions if tools are available
     });
 
     let responseText;

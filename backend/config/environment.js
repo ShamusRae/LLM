@@ -3,7 +3,7 @@
 const dotenv = require('dotenv');
 const zod = require('zod');
 
-dotenv.config();
+dotenv.config({ path: '../.env' });
 
 const envSchema = zod.object({
   NODE_ENV: zod.string().default('development'),

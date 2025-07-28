@@ -19,6 +19,9 @@ const ConsultingPage = () => {
   const [executionUpdates, setExecutionUpdates] = useState([]);
   const [activeAgents, setActiveAgents] = useState([]);
   
+  // WebSocket connection for real-time progress
+  const [wsConnection, setWsConnection] = useState(null);
+  
   // New project form state
   const [newProject, setNewProject] = useState({
     query: '',
@@ -30,6 +33,81 @@ const ConsultingPage = () => {
   });
 
   const progressRef = useRef(null);
+
+  // WebSocket connection management
+  const connectToWebSocket = (projectId) => {
+    if (wsConnection) {
+      wsConnection.close();
+    }
+
+    try {
+      const wsUrl = `ws://localhost:3001/ws/consulting`;
+      const ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        console.log('🔌 WebSocket connected for project:', projectId);
+        
+        // Subscribe to project updates
+        ws.send(JSON.stringify({
+          type: 'subscribe_project',
+          projectId: projectId,
+          clientId: 'demo_client'
+        }));
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'progress_update') {
+            console.log('📊 WebSocket progress update:', data.progress);
+            
+            // Update progress based on current modal state
+            if (showProgressModal) {
+              setProgressUpdates(prev => [...prev, {
+                ...data.progress,
+                timestamp: new Date(data.timestamp)
+              }]);
+            }
+            
+            if (showExecutionModal) {
+              setExecutionUpdates(prev => [...prev, {
+                id: Date.now() + Math.random(),
+                agent: data.progress.agent || 'System',
+                message: data.progress.message,
+                timestamp: new Date(data.timestamp),
+                progress: data.progress.progress,
+                phase: data.progress.phase
+              }]);
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+      
+      ws.onclose = (event) => {
+        console.log('🔌 WebSocket disconnected:', event.code, event.reason);
+      };
+      
+      ws.onerror = (error) => {
+        console.error('🔌 WebSocket error:', error);
+      };
+      
+      setWsConnection(ws);
+      return ws;
+    } catch (error) {
+      console.error('Failed to connect to WebSocket:', error);
+      return null;
+    }
+  };
+
+  const disconnectWebSocket = () => {
+    if (wsConnection) {
+      wsConnection.close();
+      setWsConnection(null);
+    }
+  };
 
   // Load active projects on component mount
   useEffect(() => {
@@ -48,6 +126,13 @@ const ConsultingPage = () => {
       localStorage.removeItem('consulting_projects');
     }
     loadActiveProjects();
+  }, []);
+
+  // Cleanup WebSocket on unmount
+  useEffect(() => {
+    return () => {
+      disconnectWebSocket();
+    };
   }, []);
 
   // Refresh selected project when activeProjects changes
@@ -76,6 +161,13 @@ const ConsultingPage = () => {
       setError('Please describe what you need help with');
       return;
     }
+    
+    // DEMO FIX: Clear any previous project state to avoid showing cached results
+    setSelectedProject(null);
+    setShowProjectDetails(false);
+    setExecutionUpdates([]);
+    setActiveAgents([]);
+    
     setLoading(true);
     setError(null);
     setProgressUpdates([]);
@@ -88,6 +180,9 @@ const ConsultingPage = () => {
       progress: 5,
       timestamp: new Date()
     }]);
+
+    // Connect to WebSocket for real-time progress (we'll get project ID after creation)
+    let currentProjectId = null;
     
     try {
       // Create project request
@@ -137,13 +232,22 @@ const ConsultingPage = () => {
         }
         // Save to localStorage for persistence
         const existingProjects = JSON.parse(localStorage.getItem('consulting_projects') || '[]');
+        const backendProjectId = response.data.project.projectId || response.data.project.databaseProject?.id || projectRequest.id;
+        
+        // Connect to WebSocket for real-time progress updates
+        currentProjectId = backendProjectId;
+        connectToWebSocket(backendProjectId);
         const projectWithResults = {
           ...projectRequest,
-          id: response.data.project.projectId || projectRequest.id, // Use backend's project ID
+          id: backendProjectId, // Use backend's project ID
           project: response.data.project,
           progressUpdates: response.data.progressUpdates || [],
           status: response.data.project.status || 'initiated'
         };
+        
+        // DEMO FIX: Log project creation for debugging
+        console.log('🆕 DEMO FIX: Creating new project with ID:', backendProjectId);
+        console.log('🆕 DEMO FIX: Project title:', response.data.project.title || projectRequest.query);
         
         existingProjects.push(projectWithResults);
         localStorage.setItem('consulting_projects', JSON.stringify(existingProjects));
@@ -188,7 +292,8 @@ const ConsultingPage = () => {
 
   const executeProject = async (project) => {
     try {
-      console.log('Starting project execution for:', project.id);
+      console.log('🚀 Starting project execution for:', project.id);
+      console.log('🔍 Project structure:', project);
       
       // Show execution modal with real backend tracking
       setShowExecutionModal(true);
@@ -200,72 +305,44 @@ const ConsultingPage = () => {
         { name: 'Strategy Associate', role: 'Strategic Analysis', status: 'pending', avatar: '📊' }
       ]);
 
+      // Connect to WebSocket for real-time execution updates
+      connectToWebSocket(project.id);
+
       // Add initial progress update
       setExecutionUpdates([{
         id: Date.now(),
         agent: 'System',
-        message: 'Starting project execution...',
+        message: 'Starting project execution with enhanced progress tracking...',
         timestamp: new Date(),
         progress: 5,
         phase: 'starting'
       }]);
 
-      // Make the main execution API call
-      const response = await axios.post(`/api/consulting/execute/${project.id}`, {
+      // ENHANCED: Make the main execution API call with proper project structure
+      console.log('🚀 ENHANCED: Executing project with ID:', project.id);
+      console.log('🚀 ENHANCED: Work modules available:', project.project?.workModules?.length || 0);
+      
+      // Build comprehensive project data for execution
+      const executionData = {
         project: {
           id: project.id,
           projectId: project.id,
           status: 'initiated',
-          workModules: project.project.workModules || [],
-          requirements: project.project.requirements || {},
+          workModules: project.project?.workModules || [],
+          requirements: project.project?.requirements || {},
+          title: project.project?.title || project.query,
+          query: project.query,
+          context: project.context,
           ...project.project
         }
-      });
+      };
       
-      // Simulate progress during execution with real progress updates
-      const progressSteps = [
-        { agent: 'Partner', message: 'Reviewing project requirements...', progress: 10 },
-        { agent: 'Principal', message: 'Coordinating work modules...', progress: 25 },
-        { agent: 'Research Associate', message: 'Conducting market research...', progress: 45 },
-        { agent: 'Strategy Associate', message: 'Developing strategic recommendations...', progress: 65 },
-        { agent: 'Principal', message: 'Integrating all deliverables...', progress: 85 }
-      ];
+      console.log('📊 ENHANCED: Execution payload:', JSON.stringify(executionData, null, 2));
       
-      progressSteps.forEach((step, index) => {
-        setTimeout(() => {
-          setExecutionUpdates(prev => [...prev, {
-            id: Date.now() + index,
-            agent: step.agent,
-            message: step.message,
-            timestamp: new Date(),
-            progress: step.progress,
-            phase: `step_${index}`
-          }]);
-          
-          // Update agent status
-          setActiveAgents(prev => prev.map(agent => ({
-            ...agent,
-            status: agent.name === step.agent ? 'active' : 
-                    step.progress >= 85 ? 'completed' : agent.status
-          })));
-          
-          // Update project in localStorage with progress for real-time progress bars
-          const projects = JSON.parse(localStorage.getItem('consulting_projects') || '[]');
-          const updatedProjects = projects.map(p => 
-            p.id === project.id ? {
-              ...p, 
-              currentProgress: step.progress,
-              lastUpdate: step.message,
-              updatedAt: new Date()
-            } : p
-          );
-          localStorage.setItem('consulting_projects', JSON.stringify(updatedProjects));
-          setActiveProjects([...updatedProjects]);
-        }, index * 1500); // 1.5 second intervals for better visibility
-      });
-
+      const response = await axios.post(`/api/consulting/execute/${project.id}`, executionData);
+      
       if (response.data.success) {
-        console.log('✅ Project execution successful:', response.data);
+        console.log('✅ ENHANCED: Project execution successful:', response.data);
         
         // Show final completion update after a delay
         setTimeout(() => {
@@ -280,7 +357,7 @@ const ConsultingPage = () => {
 
           // Mark all agents as completed
           setActiveAgents(prev => prev.map(agent => ({ ...agent, status: 'completed' })));
-        }, 6000); // After all progress steps complete
+        }, 8000); // After execution completes
         
         // Update project with execution results
         const updatedProject = {
@@ -291,7 +368,7 @@ const ConsultingPage = () => {
           workModules: response.data.execution?.finalReport?.deliverables?.map(d => ({
             ...d,
             status: 'completed'
-          })) || project.project.workModules || [],
+          })) || project.project?.workModules || [],
           progressUpdates: [...(project.progressUpdates || []), ...(response.data.progressUpdates || [])],
           status: 'completed',
           qualityScore: response.data.execution?.qualityScore || 0.85
@@ -302,19 +379,38 @@ const ConsultingPage = () => {
         const updatedProjects = projects.map(p => p.id === project.id ? updatedProject : p);
         localStorage.setItem('consulting_projects', JSON.stringify(updatedProjects));
         
-        // Force state updates
+        // ENHANCED: Force state updates with proper project ID tracking
+        console.log('🔄 ENHANCED: Updating project results for ID:', project.id);
+        console.log('🔄 ENHANCED: Updated project quality score:', updatedProject.qualityScore);
         setActiveProjects([...updatedProjects]);
         setSelectedProject({...updatedProject});
+        
+        // ENHANCED: Ensure project details modal shows the correct project
+        setShowProjectDetails(true);
         
         // Auto-close modal after showing completion
         setTimeout(() => {
           setShowExecutionModal(false);
-        }, 3000);
+        }, 5000);
         
-        console.log('✅ State updated, project completed:', updatedProject.status);
+        console.log('✅ ENHANCED: State updated, project completed:', updatedProject.status);
+      } else {
+        console.error('❌ ENHANCED: Execution failed:', response.data);
+        
+        // Show error in execution modal
+        setExecutionUpdates(prev => [...prev, {
+          id: Date.now(),
+          agent: 'System',
+          message: `❌ Execution failed: ${response.data.message || 'Unknown error'}`,
+          timestamp: new Date(),
+          progress: 0,
+          phase: 'error'
+        }]);
+        
+        setError(response.data.message || 'Failed to execute project');
       }
     } catch (error) {
-      console.error('❌ Error executing project:', error);
+      console.error('❌ ENHANCED: Error executing project:', error);
       
       // Show error in execution modal
       setExecutionUpdates(prev => [...prev, {
@@ -578,7 +674,10 @@ const ConsultingPage = () => {
                   <div
                     className="cursor-pointer"
                     onClick={() => {
-                      console.log('Project clicked:', project.id, project.status);
+                      console.log('🔄 DEMO FIX: Project clicked:', project.id, project.project?.title || project.query);
+                      // DEMO FIX: Clear any cached execution state when switching projects
+                      setExecutionUpdates([]);
+                      setActiveAgents([]);
                       setSelectedProject({...project}); // Force new object reference
                       setShowProjectDetails(true);
                     }}
@@ -1235,123 +1334,338 @@ const ConsultingPage = () => {
         </div>
       </Modal>
 
-      {/* Progress Modal */}
+      {/* Enhanced Progress Modal with Detailed Tracking */}
       <Modal
         isOpen={showProgressModal}
         onClose={() => {
           setShowProgressModal(false);
           setLoading(false);
         }}
-        title="🚀 Creating Your Project"
+        title="🚀 Project Initiation Progress"
+        size="lg"
       >
-        <div className="space-y-4">
-          {progressUpdates.map((update, index) => (
-            <div key={index} className="border-l-4 border-[#7dd2d3] pl-4 py-2">
-              <div className="flex justify-between items-center mb-1">
-                <span className="font-medium text-[#2d3c59] capitalize">
-                  {update.phase.replace('_', ' ')}
-                </span>
-                <span className="text-sm text-gray-500">
-                  {update.progress}%
+        <div className="space-y-6">
+          {/* Overall Progress Bar */}
+          {progressUpdates.length > 0 && (
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-[#2d3c59]">Overall Progress</span>
+                <span className="text-sm font-bold text-[#2d3c59]">
+                  {progressUpdates[progressUpdates.length - 1]?.progress || 0}%
                 </span>
               </div>
-              <p className="text-gray-600 text-sm mb-2">{update.message}</p>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
                 <div 
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    update.phase === 'infeasible' ? 'bg-red-500' : 'bg-[#7dd2d3]'
+                  className={`h-3 rounded-full transition-all duration-500 ${
+                    progressUpdates[progressUpdates.length - 1]?.phase === 'error' ? 'bg-red-500' : 
+                    'bg-gradient-to-r from-[#7dd2d3] to-[#2d3c59]'
                   }`}
-                  style={{ width: `${update.progress}%` }}
+                  style={{ width: `${progressUpdates[progressUpdates.length - 1]?.progress || 0}%` }}
                 />
               </div>
-              {index === progressUpdates.length - 1 && update.progress < 100 && (
-                <div className="flex items-center mt-2 text-sm text-blue-600">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                  Processing...
+            </div>
+          )}
+
+          {/* Current Activity Display */}
+          {progressUpdates.length > 0 && (
+            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium">
+                    {progressUpdates[progressUpdates.length - 1]?.agent?.charAt(0) || 'S'}
+                  </div>
+                  <div>
+                    <div className="font-medium text-blue-900">
+                      {progressUpdates[progressUpdates.length - 1]?.agent || 'System'} - {progressUpdates[progressUpdates.length - 1]?.role || 'Processing'}
+                    </div>
+                    <div className="text-sm text-blue-700">
+                      {progressUpdates[progressUpdates.length - 1]?.message || 'Working...'}
+                    </div>
+                  </div>
+                </div>
+                {progressUpdates[progressUpdates.length - 1]?.estimatedTimeRemaining && (
+                  <div className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded">
+                    ETA: {progressUpdates[progressUpdates.length - 1].estimatedTimeRemaining}
+                  </div>
+                )}
+              </div>
+              
+              {/* Show detailed information if available */}
+              {progressUpdates[progressUpdates.length - 1]?.details && (
+                <div className="mt-3 p-3 bg-white rounded border text-xs">
+                  <div className="font-medium text-gray-700 mb-2">Details:</div>
+                  <div className="grid grid-cols-2 gap-2 text-gray-600">
+                    {Object.entries(progressUpdates[progressUpdates.length - 1].details).map(([key, value]) => (
+                      <div key={key} className="flex justify-between">
+                        <span className="capitalize">{key.replace(/([A-Z])/g, ' $1').toLowerCase()}:</span>
+                        <span className="font-medium">
+                          {Array.isArray(value) ? `${value.length} items` : String(value)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
-          ))}
-          
-          {progressUpdates.length === 0 && (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#2d3c59] mx-auto mb-4"></div>
-              <p className="text-gray-600">Initializing...</p>
-            </div>
           )}
+
+          {/* Progress Timeline */}
+          <div className="space-y-3 max-h-60 overflow-y-auto">
+            <h4 className="font-medium text-gray-700 mb-3 flex items-center">
+              <span className="mr-2">📋</span> Initiation Timeline
+            </h4>
+            
+            {progressUpdates.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#2d3c59] mx-auto mb-4"></div>
+                <p className="text-gray-600">Initializing project...</p>
+              </div>
+            ) : (
+              progressUpdates.map((update, index) => (
+                <div key={index} className="flex items-start space-x-3 pb-3 border-b border-gray-100 last:border-b-0">
+                  <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                    update.phase === 'error' ? 'bg-red-500 text-white' :
+                    update.progress === 100 ? 'bg-green-500 text-white' :
+                    index === progressUpdates.length - 1 ? 'bg-blue-500 text-white animate-pulse' :
+                    'bg-gray-300 text-gray-600'
+                  }`}>
+                    {update.phase === 'error' ? '⚠️' :
+                     update.progress === 100 ? '✓' :
+                     index === progressUpdates.length - 1 ? '⟳' : '•'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-sm font-medium text-gray-900 capitalize">
+                        {update.phase?.replace(/_/g, ' ') || 'Processing'}
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {update.agent && (
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                            {update.agent}
+                          </span>
+                        )}
+                        <span className="text-xs font-bold text-[#7dd2d3]">
+                          {update.progress}%
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-600">{update.message}</p>
+                    {update.timestamp && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        {new Date(update.timestamp).toLocaleTimeString()}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex justify-between items-center pt-4 border-t">
+            <div className="text-sm text-gray-500">
+              {progressUpdates.length > 0 && progressUpdates[progressUpdates.length - 1]?.progress < 100 ? 
+                'Project initiation in progress...' : 
+                progressUpdates.length > 0 ? 'Project initiation complete!' : 'Starting...'
+              }
+            </div>
+            <button 
+              onClick={() => {
+                setShowProgressModal(false);
+                setLoading(false);
+              }}
+              className="text-blue-600 hover:text-blue-800 underline text-sm"
+            >
+              {progressUpdates.length > 0 && progressUpdates[progressUpdates.length - 1]?.progress === 100 ? 
+                'Continue to Project' : 'Run in Background'
+              }
+            </button>
+          </div>
         </div>
       </Modal>
 
-      {/* Execution Modal - Agents Working */}
+      {/* Enhanced Execution Modal - Agents Working with Detailed Progress */}
       <Modal
         isOpen={showExecutionModal}
         onClose={() => setShowExecutionModal(false)}
         title="🏢 Consulting Team in Action"
-        size="lg"
+        size="xl"
       >
         <div className="space-y-6">
-          {/* Agent Status Bar */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {activeAgents.map((agent, index) => (
-              <div key={index} className="text-center">
-                <div className={`text-4xl mb-2 ${
-                  agent.status === 'active' ? 'animate-bounce' : 
-                  agent.status === 'completed' ? 'opacity-100' : 'opacity-50'
-                }`}>
-                  {agent.avatar}
-                </div>
-                <div className="text-sm font-medium text-[#2d3c59]">{agent.name}</div>
-                <div className="text-xs text-gray-500">{agent.role}</div>
-                <div className={`text-xs mt-1 px-2 py-1 rounded-full ${
-                  agent.status === 'active' ? 'bg-blue-100 text-blue-800' :
-                  agent.status === 'completed' ? 'bg-green-100 text-green-800' :
-                  'bg-gray-100 text-gray-600'
-                }`}>
-                  {agent.status === 'active' ? 'Working' : 
-                   agent.status === 'completed' ? 'Done' : 'Waiting'}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Progress Bar */}
+          {/* Overall Progress Bar */}
           {executionUpdates.length > 0 && (
-            <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
-              <div 
-                className="bg-gradient-to-r from-[#7dd2d3] to-[#2d3c59] h-3 rounded-full transition-all duration-500 ease-out"
-                style={{ width: `${executionUpdates[executionUpdates.length - 1]?.progress || 0}%` }}
-              />
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-[#2d3c59]">Execution Progress</span>
+                <span className="text-sm font-bold text-[#2d3c59]">
+                  {executionUpdates[executionUpdates.length - 1]?.progress || 0}%
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                <div 
+                  className="bg-gradient-to-r from-[#7dd2d3] to-[#2d3c59] h-4 rounded-full transition-all duration-1000 ease-out"
+                  style={{ width: `${executionUpdates[executionUpdates.length - 1]?.progress || 0}%` }}
+                />
+              </div>
             </div>
           )}
 
-          {/* Agent Conversations */}
-          <div className="bg-gray-50 rounded-lg p-4 max-h-64 overflow-y-auto">
+          {/* Current Activity & Agent Status */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Current Activity */}
+            {executionUpdates.length > 0 && (
+              <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+                <div className="flex items-center space-x-3 mb-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium ${
+                    executionUpdates[executionUpdates.length - 1]?.phase === 'error' ? 'bg-red-500' :
+                    executionUpdates[executionUpdates.length - 1]?.phase === 'completed' ? 'bg-green-500' :
+                    'bg-blue-500 animate-pulse'
+                  }`}>
+                    {executionUpdates[executionUpdates.length - 1]?.agent?.charAt(0) || 'S'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-blue-900">
+                      {executionUpdates[executionUpdates.length - 1]?.agent || 'System'} - {executionUpdates[executionUpdates.length - 1]?.role || 'Processing'}
+                    </div>
+                    <div className="text-sm text-blue-700 truncate">
+                      {executionUpdates[executionUpdates.length - 1]?.message || 'Working...'}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Current Module Progress */}
+                {executionUpdates[executionUpdates.length - 1]?.currentModule && (
+                  <div className="bg-white rounded p-3 border">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-medium text-gray-700">Current Module</span>
+                      <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                        {executionUpdates[executionUpdates.length - 1].currentModule.specialist}
+                      </span>
+                    </div>
+                    <div className="text-sm font-medium text-gray-900 mb-1">
+                      {executionUpdates[executionUpdates.length - 1].currentModule.type?.replace(/_/g, ' ')}
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${executionUpdates[executionUpdates.length - 1].currentModule.progress || 0}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Show detailed information if available */}
+                {executionUpdates[executionUpdates.length - 1]?.details && (
+                  <div className="mt-3 p-3 bg-white rounded border text-xs">
+                    <div className="font-medium text-gray-700 mb-2">Execution Details:</div>
+                    <div className="grid grid-cols-2 gap-2 text-gray-600">
+                      {Object.entries(executionUpdates[executionUpdates.length - 1].details).map(([key, value]) => (
+                        <div key={key} className="flex justify-between">
+                          <span className="capitalize">{key.replace(/([A-Z])/g, ' $1').toLowerCase()}:</span>
+                          <span className="font-medium">
+                            {Array.isArray(value) ? `${value.length} items` : String(value)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Agent Status Grid */}
+            <div>
+              <h4 className="font-medium text-gray-700 mb-3 flex items-center">
+                <span className="mr-2">👥</span> Team Status
+              </h4>
+              <div className="grid grid-cols-2 gap-3">
+                {activeAgents.map((agent, index) => (
+                  <div key={index} className="text-center p-3 border rounded-lg">
+                    <div className={`text-3xl mb-2 ${
+                      agent.status === 'active' ? 'animate-bounce' : 
+                      agent.status === 'completed' ? 'opacity-100' : 'opacity-50'
+                    }`}>
+                      {agent.avatar}
+                    </div>
+                    <div className="text-sm font-medium text-[#2d3c59]">{agent.name}</div>
+                    <div className="text-xs text-gray-500 mb-2">{agent.role}</div>
+                    <div className={`text-xs px-2 py-1 rounded-full ${
+                      agent.status === 'active' ? 'bg-green-100 text-green-800' :
+                      agent.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {agent.status === 'active' ? 'Working' : 
+                       agent.status === 'completed' ? 'Done' : 'Waiting'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Execution Timeline */}
+          <div className="bg-gray-50 rounded-lg p-4 max-h-80 overflow-y-auto">
             <h4 className="font-medium text-[#2d3c59] mb-3 flex items-center">
-              <span className="mr-2">💬</span> Team Communications
+              <span className="mr-2">💬</span> Execution Timeline
             </h4>
             
             {executionUpdates.length === 0 ? (
               <div className="text-center text-gray-500 py-8">
-                <div className="animate-pulse">Initializing consultation team...</div>
+                <div className="animate-pulse">Initializing execution environment...</div>
               </div>
             ) : (
               <div className="space-y-3">
                 {executionUpdates.map((update) => (
                   <div key={update.id} className="flex items-start space-x-3 animate-fadeIn">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#7dd2d3] flex items-center justify-center text-white text-sm font-medium">
-                      {update.agent.split(' ')[0].charAt(0)}
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${
+                      update.phase === 'error' ? 'bg-red-500' :
+                      update.phase === 'completed' ? 'bg-green-500' :
+                      update.phase === 'module_completed' ? 'bg-blue-500' :
+                      'bg-[#7dd2d3]'
+                    }`}>
+                      {update.agent?.split(' ')[0]?.charAt(0) || 'S'}
                     </div>
                     <div className="flex-1">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <span className="font-medium text-[#2d3c59] text-sm">{update.agent}</span>
-                        <span className="text-xs text-gray-500">
-                          {update.timestamp.toLocaleTimeString()}
-                        </span>
-                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                          {update.progress}%
-                        </span>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-medium text-[#2d3c59] text-sm">{update.agent}</span>
+                          <span className="text-xs text-gray-500">
+                            {update.timestamp?.toLocaleTimeString() || new Date().toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {update.phase && (
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              update.phase === 'completed' ? 'bg-green-100 text-green-800' :
+                              update.phase === 'error' ? 'bg-red-100 text-red-800' :
+                              update.phase === 'module_completed' ? 'bg-blue-100 text-blue-800' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {update.phase.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                            {update.progress}%
+                          </span>
+                        </div>
                       </div>
                       <p className="text-sm text-gray-700">{update.message}</p>
+                      
+                      {/* Show module progress if available */}
+                      {update.currentModule && (
+                        <div className="mt-2 p-2 bg-blue-50 rounded text-xs">
+                          <div className="flex justify-between items-center">
+                            <span className="font-medium">{update.currentModule.type?.replace(/_/g, ' ')}</span>
+                            <span>{update.currentModule.progress}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1 mt-1">
+                            <div 
+                              className="bg-blue-500 h-1 rounded-full transition-all duration-300"
+                              style={{ width: `${update.currentModule.progress || 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1360,17 +1674,42 @@ const ConsultingPage = () => {
           </div>
 
           {/* Status Footer */}
-          <div className="flex justify-between items-center text-sm text-gray-600 bg-blue-50 p-3 rounded">
+          <div className="flex justify-between items-center text-sm text-gray-600 bg-blue-50 p-4 rounded">
             <div className="flex items-center space-x-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-              <span>Consulting team is working on your project...</span>
+              {executionUpdates.length > 0 && executionUpdates[executionUpdates.length - 1]?.progress < 100 ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  <span>Consulting team is actively working on your project...</span>
+                </>
+              ) : executionUpdates.length > 0 && executionUpdates[executionUpdates.length - 1]?.progress === 100 ? (
+                <>
+                  <div className="text-green-600">✅</div>
+                  <span className="text-green-600 font-medium">Project execution completed successfully!</span>
+                </>
+              ) : (
+                <>
+                  <div className="animate-pulse">⚡</div>
+                  <span>Preparing execution environment...</span>
+                </>
+              )}
             </div>
-            <button 
-              onClick={() => setShowExecutionModal(false)}
-              className="text-blue-600 hover:text-blue-800 underline"
-            >
-              Run in background
-            </button>
+            <div className="flex space-x-3">
+              {executionUpdates.length > 0 && executionUpdates[executionUpdates.length - 1]?.progress === 100 ? (
+                <button 
+                  onClick={() => setShowExecutionModal(false)}
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors"
+                >
+                  View Results
+                </button>
+              ) : (
+                <button 
+                  onClick={() => setShowExecutionModal(false)}
+                  className="text-blue-600 hover:text-blue-800 underline"
+                >
+                  Run in background
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </Modal>

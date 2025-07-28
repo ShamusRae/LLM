@@ -7,10 +7,14 @@ const teamCollaborationService = require('../teamCollaborationService');
  * Handles parallel execution of specialized tasks
  */
 class AssociatePool {
-  constructor(config = {}) {
+  constructor(config = {}, aiRouter = null, promptEngine = null) {
     this.maxConcurrentTasks = config.maxConcurrentTasks || 4;
     this.specialists = config.specialists || ['research', 'strategy', 'technical', 'creative'];
     this.activeAssignments = new Map();
+    
+    // 🧠 AI Intelligence Integration (Phase 2)
+    this.aiRouter = aiRouter;
+    this.promptEngine = promptEngine;
     
     // Track specialist capabilities
     this.specialistCapabilities = {
@@ -240,29 +244,27 @@ Respond with a JSON object containing these fields.`;
   }
 
   /**
-   * Get specialist analysis using team collaboration service
+   * Get specialist analysis using AI with REAL DATA ACCESS
    * @private
    */
-  async getSpecialistAnalysis(prompt, specialist) {
+  async getSpecialistAnalysis(prompt, specialistType) {
     try {
-      // Map specialist types to model categories for optimal results
-      const specialistModelMapping = {
-        research: 'General',    // Good balance for research and data analysis
-        strategy: 'Strategic',  // Best strategic thinking capabilities
-        technical: 'Tactical',  // Technical depth and precision
-        creative: 'Rapid'      // Creative and innovative thinking
-      };
-
-      const modelCategory = specialistModelMapping[specialist] || 'General';
+      console.log(`🧠 ASSOCIATE AI: Getting ${specialistType} analysis with REAL DATA ACCESS`);
       
-      // Create specialist avatar
+      // 🌐 ENABLE INTERNET ACCESS: Get function definitions for real data
+      const { mcpServer } = require('../mcpService');
+      const functionDefinitions = mcpServer.getFunctionDefinitions();
+      
+      console.log(`🔧 ASSOCIATE: Enabled ${functionDefinitions.length} internet tools for ${specialistType}`);
+      
+      // Use team collaboration service with internet access
       const specialistAvatar = {
-        id: `specialist_${specialist}`,
-        name: `${specialist.charAt(0).toUpperCase()}${specialist.slice(1)} Specialist`,
-        modelCategory,
-        role: `Senior ${specialist} Consultant`,
-        description: `Expert ${specialist} specialist with deep domain knowledge`,
-        skills: this.specialistCapabilities[specialist] || ['Analysis', 'Research', 'Strategy']
+        id: `associate_${specialistType}`,
+        name: `${specialistType.charAt(0).toUpperCase() + specialistType.slice(1)} Associate`,
+        modelCategory: this.getModelCategoryForSpecialist(specialistType),
+        role: `${specialistType.charAt(0).toUpperCase() + specialistType.slice(1)} Specialist`,
+        description: `Expert ${specialistType} analyst with access to real-time market data`,
+        skills: this.getSkillsForSpecialist(specialistType)
       };
 
       const result = await teamCollaborationService.orchestrateCollaboration({
@@ -270,18 +272,20 @@ Respond with a JSON object containing these fields.`;
         activeAvatars: [specialistAvatar],
         chatHistory: [],
         onUpdate: null,
-        selectedFiles: []
+        selectedFiles: [],
+        functionDefinitions: functionDefinitions // 🌐 INTERNET ACCESS
       });
 
-      if (result && result.responses && result.responses[0]) {
+      if (result && result.responses && result.responses[0] && result.responses[0].response) {
+        console.log(`✅ ASSOCIATE: Got ${specialistType} analysis: ${result.responses[0].response.length} chars`);
         return result.responses[0].response;
       } else {
-        throw new Error('No response from specialist analysis');
+        throw new Error(`No response from ${specialistType} specialist`);
       }
 
     } catch (error) {
-      console.error(`${specialist} specialist analysis failed:`, error);
-      throw new Error(`Specialist analysis failed: ${error.message}`);
+      console.error(`❌ ASSOCIATE: ${specialistType} analysis failed:`, error.message);
+      throw error;
     }
   }
 
@@ -326,10 +330,44 @@ Respond with a JSON object containing these fields.`;
   }
 
   /**
-   * Create fallback deliverable
+   * Get model category for specialist type
+   * @private
+   */
+  getModelCategoryForSpecialist(specialistType) {
+    const modelMapping = {
+      research: 'General',    // Good balance for research and data analysis
+      strategy: 'Strategic',  // Best strategic thinking capabilities  
+      technical: 'Tactical',  // Technical depth and precision
+      creative: 'Rapid',     // Creative and innovative thinking
+      financial: 'Strategic' // Financial requires strategic thinking
+    };
+    
+    return modelMapping[specialistType] || 'General';
+  }
+
+  /**
+   * Get skills for specialist type
+   * @private
+   */
+  getSkillsForSpecialist(specialistType) {
+    const skillsMapping = {
+      research: ['Market Research', 'Data Analysis', 'Competitive Intelligence', 'Real-time Data Access'],
+      strategy: ['Strategic Planning', 'Business Analysis', 'Investment Strategy', 'Real-time Market Analysis'],
+      technical: ['Technical Analysis', 'Financial Modeling', 'Data Processing', 'API Integration'],
+      financial: ['Financial Analysis', 'Valuation', 'Risk Assessment', 'Market Data Analysis'],
+      creative: ['Innovation', 'Creative Problem Solving', 'Design Thinking']
+    };
+    
+    return skillsMapping[specialistType] || ['Analysis', 'Research', 'Strategy'];
+  }
+
+  /**
+   * Create fallback deliverable - REDUCED fallback, emphasize data requirements
    * @private
    */
   createFallbackDeliverable(assignment) {
+    console.warn(`⚠️ ASSOCIATE FALLBACK: Using template for ${assignment.moduleId} - real data analysis failed`);
+    
     const workModule = assignment.workModule;
     const specialist = assignment.specialist;
     const moduleType = workModule.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -338,36 +376,34 @@ Respond with a JSON object containing these fields.`;
       moduleId: workModule.id,
       type: workModule.type,
       specialist: specialist,
-      title: `${moduleType} Report`,
-      executiveSummary: `${moduleType} analysis completed by ${specialist} specialist with comprehensive findings and actionable recommendations.`,
-      content: `Professional ${moduleType.toLowerCase()} analysis covering all key requirements and deliverables specified in the work module.`,
+      title: `${moduleType} Report - Data Required`,
+      executiveSummary: `${moduleType} analysis by ${specialist} specialist requires real-time market data for completion.`,
+      content: `Professional ${moduleType.toLowerCase()} analysis cannot be completed without access to current market data and internet connectivity.`,
       findings: [
-        `Key ${moduleType.toLowerCase()} insights identified through systematic analysis`,
-        'Strategic opportunities and challenges documented',
-        'Data-driven conclusions reached based on available information'
+        `${moduleType} analysis requires real-time data access`,
+        'Internet connectivity needed for current market information',
+        'API access required for accurate financial metrics'
       ],
-      analysis: `Thorough ${moduleType.toLowerCase()} analysis completed using industry best practices and proven methodologies.`,
-      data: 'Comprehensive data collection, validation, and analysis completed to support findings and recommendations.',
+      analysis: `${moduleType} analysis incomplete - requires real-time data sources for accurate investment insights.`,
+      data: 'Real-time market data unavailable - analysis cannot proceed without internet access',
       insights: [
-        'Strategic implications for business objectives identified',
-        'Competitive advantages and positioning opportunities assessed',
-        'Implementation considerations and success factors analyzed'
+        'Investment analysis requires current market data',
+        'Template responses insufficient for investment decisions',
+        'Real-time API access critical for accurate analysis'
       ],
       recommendations: [
-        'Implement high-priority recommendations with clear success metrics',
-        'Establish monitoring and feedback mechanisms for continuous improvement',
-        'Plan phased approach to minimize risks and maximize benefits'
+        'Ensure internet connectivity for real-time data',
+        'Verify API access to financial data sources',
+        'Retry analysis with data connectivity restored'
       ],
       nextSteps: [
-        'Review recommendations with key stakeholders',
-        'Develop detailed implementation timeline',
-        'Establish success metrics and monitoring processes'
+        'Check internet connection and API access',
+        'Verify Yahoo Finance API availability',
+        'Rerun analysis with real-time data access'
       ],
-      qualityScore: 0.85, // Good default quality score
+      qualityScore: 0.2, // Very low quality for data-missing fallback
       completedAt: new Date(),
-      assignmentId: assignment.id,
-      estimatedHours: workModule.estimatedHours || 3,
-      actualHours: this.calculateActualHours(assignment)
+      warning: 'This is a fallback response - real market data analysis failed'
     };
   }
 

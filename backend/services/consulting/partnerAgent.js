@@ -7,10 +7,14 @@ const teamCollaborationService = require('../teamCollaborationService');
  * Acts as the senior consultant who understands business context and client needs
  */
 class PartnerAgent {
-  constructor(config = {}) {
+  constructor(config = {}, aiRouter = null, promptEngine = null) {
     this.maxClarificationRounds = config.maxClarificationRounds || 3;
     this.requirementsTemplate = config.requirementsTemplate || 'standard';
     this.consultingStyle = config.consultingStyle || 'professional';
+    
+    // 🧠 AI Intelligence Integration (Phase 2)
+    this.aiRouter = aiRouter;
+    this.promptEngine = promptEngine;
     
     // Consulting expertise areas
     this.expertiseAreas = [
@@ -239,7 +243,7 @@ Respond with a JSON object.`;
   }
 
   /**
-   * Get AI analysis using the existing team collaboration service
+   * Get AI analysis using the existing team collaboration service WITH INTERNET ACCESS
    * @private
    */
   async getAIAnalysis(prompt) {
@@ -250,27 +254,35 @@ Respond with a JSON object.`;
         name: 'Senior Partner',
         modelCategory: 'Strategic',
         role: 'Senior Consulting Partner',
-        description: 'Expert in business analysis and client requirements gathering',
-        skills: ['Strategic Analysis', 'Client Relations', 'Business Development', 'Requirements Gathering']
+        description: 'Expert in business analysis and client requirements gathering with real-time data access',
+        skills: ['Strategic Analysis', 'Client Relations', 'Business Development', 'Requirements Gathering', 'Real-time Data Access']
       };
 
-      // Use team collaboration service for AI analysis
+      // 🌐 ENABLE INTERNET ACCESS: Get function definitions for real data
+      const { mcpServer } = require('../mcpService');
+      const functionDefinitions = mcpServer.getFunctionDefinitions();
+      
+      console.log(`🌐 PARTNER AGENT: Enabled ${functionDefinitions.length} internet tools for requirements analysis`);
+
+      // Use team collaboration service for AI analysis WITH INTERNET ACCESS
       const result = await teamCollaborationService.orchestrateCollaboration({
         message: prompt,
         activeAvatars: [strategicAvatar],
         chatHistory: [],
         onUpdate: null,
-        selectedFiles: []
+        selectedFiles: [],
+        functionDefinitions: functionDefinitions // 🌐 INTERNET ACCESS FOR PARTNER ANALYSIS
       });
 
-      if (result && result.responses && result.responses[0]) {
+      if (result && result.responses && result.responses.length > 0 && result.responses[0]) {
+        console.log(`✅ PARTNER AGENT: Got AI analysis: ${result.responses[0].response.length} chars`);
         return result.responses[0].response;
       } else {
         throw new Error('No response from AI analysis');
       }
 
     } catch (error) {
-      console.error('AI analysis failed:', error);
+      console.error('❌ PARTNER AGENT: AI analysis failed:', error);
       throw new Error(`AI analysis failed: ${error.message}`);
     }
   }

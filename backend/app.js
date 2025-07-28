@@ -7,7 +7,7 @@ const fs = require('fs');
 const fsPromises = fs.promises;
 const app = express();
 
-require('dotenv').config();
+require('dotenv').config({ path: '../.env' });
 
 // Middleware
 const corsOptions = {
