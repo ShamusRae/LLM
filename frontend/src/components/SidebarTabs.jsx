@@ -19,14 +19,14 @@ const SidebarTabs = forwardRef(({ onSelectedFilesChange, onSelectedDataFeedsChan
   }));
 
   return (
-    <div className="border border-slate-200 rounded-2xl bg-white/90 backdrop-blur flex flex-col h-full shadow-md">
+    <div className="rovesg-card rounded-2xl backdrop-blur flex flex-col h-full">
       {/* Tab headers */}
-      <div className="flex border-b bg-white/95 rounded-t-2xl">
+      <div className="flex border-b border-[var(--rovesg-border)] bg-[var(--rovesg-surface)]/95 rounded-t-2xl">
         <button
           className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
             activeTab === 'files'
-              ? 'text-[#002466] border-b-4 border-[#819f3d] font-bold'
-              : 'text-gray-500 hover:text-[#002466]'
+              ? 'text-[var(--rovesg-primary)] border-b-4 border-[var(--rovesg-accent)] font-bold'
+              : 'text-[var(--rovesg-text-muted)] hover:text-[var(--rovesg-text)]'
           }`}
           onClick={() => setActiveTab('files')}
         >
@@ -35,8 +35,8 @@ const SidebarTabs = forwardRef(({ onSelectedFilesChange, onSelectedDataFeedsChan
         <button
           className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
             activeTab === 'dataFeeds'
-              ? 'text-[#002466] border-b-4 border-[#819f3d] font-bold'
-              : 'text-gray-500 hover:text-[#002466]'
+              ? 'text-[var(--rovesg-primary)] border-b-4 border-[var(--rovesg-accent)] font-bold'
+              : 'text-[var(--rovesg-text-muted)] hover:text-[var(--rovesg-text)]'
           }`}
           onClick={() => setActiveTab('dataFeeds')}
         >

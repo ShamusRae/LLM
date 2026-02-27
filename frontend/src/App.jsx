@@ -13,8 +13,8 @@ const App = () => {
   return (
     <ErrorBoundary>
       <Router>
-        <div className="min-h-screen bg-[#f7f7f6]">
-          <header className="bg-gradient-to-r from-slate-900 to-[#002466] shadow-sm border-b border-slate-700 px-4 py-3">
+        <div className="min-h-screen bg-[var(--rovesg-bg)] text-[var(--rovesg-text)]">
+          <header className="bg-gradient-to-r from-[var(--rovesg-secondary)] to-[#144270] shadow-sm border-b border-[var(--rovesg-border)] px-4 py-3">
             <nav className="flex justify-between items-center max-w-7xl mx-auto">
               <div className="flex items-center">
                 <Link to="/" className="flex items-center">
@@ -22,27 +22,27 @@ const App = () => {
                 </Link>
               </div>
               <div className="text-center flex-grow">
-                <Link to="/" className="text-xl font-semibold text-white">
+                <Link to="/" className="text-xl font-semibold text-[var(--rovesg-text)]">
                   Rovesg Family Office
                 </Link>
               </div>
               <div className="flex space-x-2">
-                <Link to="/" className="px-4 py-2 rounded-md bg-slate-800/80 hover:bg-[#819f3d] hover:text-white transition-colors text-white">
+                <Link to="/" className="px-4 py-2 rounded-md bg-[var(--rovesg-surface)]/90 hover:bg-[var(--rovesg-primary)] hover:text-[#04181b] transition-colors text-[var(--rovesg-text)] border border-[var(--rovesg-border)]">
                   💬 Chat
                 </Link>
-                <Link to="/teams" className="px-4 py-2 rounded-md bg-slate-800/80 hover:bg-[#819f3d] hover:text-white transition-colors text-white">
+                <Link to="/teams" className="px-4 py-2 rounded-md bg-[var(--rovesg-surface)]/90 hover:bg-[var(--rovesg-primary)] hover:text-[#04181b] transition-colors text-[var(--rovesg-text)] border border-[var(--rovesg-border)]">
                   👥 Teams
                 </Link>
-                <Link to="/consulting" className="px-4 py-2 rounded-md bg-slate-800/80 hover:bg-[#819f3d] hover:text-white transition-colors text-white">
+                <Link to="/consulting" className="px-4 py-2 rounded-md bg-[var(--rovesg-surface)]/90 hover:bg-[var(--rovesg-primary)] hover:text-[#04181b] transition-colors text-[var(--rovesg-text)] border border-[var(--rovesg-border)]">
                   🏢 Consulting
                 </Link>
-                <Link to="/agent-wizard" className="px-4 py-2 rounded-md bg-slate-800/80 hover:bg-[#819f3d] hover:text-white transition-colors text-white">
+                <Link to="/agent-wizard" className="px-4 py-2 rounded-md bg-[var(--rovesg-surface)]/90 hover:bg-[var(--rovesg-primary)] hover:text-[#04181b] transition-colors text-[var(--rovesg-text)] border border-[var(--rovesg-border)]">
                   🧙 Create Agent
                 </Link>
-                <Link to="/automation" className="px-4 py-2 rounded-md bg-slate-800/80 hover:bg-[#819f3d] hover:text-white transition-colors text-white">
+                <Link to="/automation" className="px-4 py-2 rounded-md bg-[var(--rovesg-surface)]/90 hover:bg-[var(--rovesg-primary)] hover:text-[#04181b] transition-colors text-[var(--rovesg-text)] border border-[var(--rovesg-border)]">
                   🔄 Flow Editor
                 </Link>
-                <Link to="/settings" className="px-4 py-2 rounded-md bg-slate-800/80 hover:bg-[#819f3d] hover:text-white transition-colors text-white">
+                <Link to="/settings" className="px-4 py-2 rounded-md bg-[var(--rovesg-surface)]/90 hover:bg-[var(--rovesg-primary)] hover:text-[#04181b] transition-colors text-[var(--rovesg-text)] border border-[var(--rovesg-border)]">
                   ⚙️ Settings
                 </Link>
               </div>

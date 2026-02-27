@@ -76,19 +76,19 @@ const DataFeedsSelector = ({ onSelectionChange, initialSelection = [] }) => {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-4 bg-white">
+      <div className="p-4 bg-[var(--rovesg-surface)]/80 border-b border-[var(--rovesg-border)]">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-slate-900">Data Feeds</h2>
+          <h2 className="text-lg font-semibold text-[var(--rovesg-text)]">Data Feeds</h2>
           <div className="space-x-2">
             <button
               onClick={() => toggleAll(true)}
-              className="px-2 py-1 text-xs bg-[#819f3d]/15 text-[#5f752f] rounded hover:bg-[#819f3d]/25"
+              className="px-2 py-1 text-xs bg-[var(--rovesg-accent)]/20 text-[var(--rovesg-accent)] rounded border border-[var(--rovesg-accent)]/30 hover:bg-[var(--rovesg-accent)]/30"
             >
               Select All
             </button>
             <button
               onClick={() => toggleAll(false)}
-              className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+              className="px-2 py-1 text-xs bg-[#182025] text-[var(--rovesg-text-muted)] rounded border border-[var(--rovesg-border)] hover:bg-[#202a31]"
             >
               Deselect All
             </button>
@@ -97,15 +97,15 @@ const DataFeedsSelector = ({ onSelectionChange, initialSelection = [] }) => {
       </div>
 
       {/* Scrollable feed list */}
-      <div className="overflow-y-auto flex-1 p-4 bg-white">
+      <div className="overflow-y-auto flex-1 p-4 bg-[var(--rovesg-surface)]/70">
         <div className="space-y-2">
           {availableFeeds.map(feed => (
             <div 
               key={feed.id}
               className={`p-3 border rounded cursor-pointer transition-colors ${
                 selectedFeeds.includes(feed.id)
-                  ? 'border-[#819f3d] bg-[#819f3d]/10'
-                  : 'border-gray-200 hover:border-slate-300'
+                  ? 'border-[var(--rovesg-accent)] bg-[var(--rovesg-secondary)]/30'
+                  : 'border-[var(--rovesg-border)] bg-[#182025] hover:border-[var(--rovesg-primary)]'
               }`}
               onClick={() => toggleFeed(feed.id)}
             >
@@ -113,16 +113,16 @@ const DataFeedsSelector = ({ onSelectionChange, initialSelection = [] }) => {
                 <div className="mr-2 text-xl">{feed.icon}</div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">{feed.name}</span>
+                    <span className="font-medium text-[var(--rovesg-text)]">{feed.name}</span>
                     <input
                       type="checkbox"
                       checked={selectedFeeds.includes(feed.id)}
                       onChange={() => toggleFeed(feed.id)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      className="h-4 w-4 text-[var(--rovesg-primary)] focus:ring-[var(--rovesg-primary)] border-[var(--rovesg-border)] rounded bg-[#121619]"
                       onClick={e => e.stopPropagation()}
                     />
                   </div>
-                  <p className="text-sm text-gray-500">{feed.description}</p>
+                  <p className="text-sm text-[var(--rovesg-text-muted)]">{feed.description}</p>
                 </div>
               </div>
             </div>
@@ -130,7 +130,7 @@ const DataFeedsSelector = ({ onSelectionChange, initialSelection = [] }) => {
         </div>
       </div>
 
-      <div className="p-4 bg-white border-t text-xs text-gray-500">
+      <div className="p-4 bg-[var(--rovesg-surface)]/85 border-t border-[var(--rovesg-border)] text-xs text-[var(--rovesg-text-muted)]">
         <p>Selected feeds will be available to the AI. Deselect feeds you don't want to use.</p>
       </div>
     </div>

@@ -189,18 +189,18 @@ const FileList = forwardRef(({ onSelectedFilesChange, onFileUploadComplete }, re
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-4 bg-white">
-        <h2 className="font-bold mb-4">Files</h2>
+      <div className="p-4 bg-[var(--rovesg-surface)]/80 border-b border-[var(--rovesg-border)]">
+        <h2 className="font-bold mb-4 text-[var(--rovesg-text)]">Files</h2>
         
         {/* Upload area */}
         <div
           {...getRootProps()}
           className={`p-4 border-2 border-dashed rounded cursor-pointer mb-4 transition-colors ${
-            isDragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+            isDragActive ? 'border-[var(--rovesg-primary)] bg-[var(--rovesg-secondary)]/30' : 'border-[var(--rovesg-border)] hover:border-[var(--rovesg-primary)] bg-[#182025]'
           }`}
         >
           <input {...getInputProps()} />
-          <p className="text-center text-gray-600">
+          <p className="text-center text-[var(--rovesg-text-muted)]">
             {uploading ? 'Uploading...' : 'Drag and drop a file here, or click to select one'}
           </p>
         </div>
@@ -214,16 +214,16 @@ const FileList = forwardRef(({ onSelectedFilesChange, onFileUploadComplete }, re
       </div>
 
       {/* File list - Now scrollable */}
-      <div className="overflow-y-auto flex-1 p-4 bg-white">
+      <div className="overflow-y-auto flex-1 p-4 bg-[var(--rovesg-surface)]/70">
         {loading ? (
           <div className="flex justify-center items-center h-full">
             <div className="animate-pulse text-center">
-              <div className="h-4 w-32 bg-gray-200 mb-2 mx-auto rounded"></div>
-              <p className="text-gray-500">Loading files...</p>
+              <div className="h-4 w-32 bg-[#2a343c] mb-2 mx-auto rounded"></div>
+              <p className="text-[var(--rovesg-text-muted)]">Loading files...</p>
             </div>
           </div>
         ) : files.length === 0 ? (
-          <p className="text-gray-500 text-center py-4">No files uploaded yet</p>
+          <p className="text-[var(--rovesg-text-muted)] text-center py-4">No files uploaded yet</p>
         ) : (
           <div className="space-y-2">
             {files.map((file) => (
@@ -231,8 +231,8 @@ const FileList = forwardRef(({ onSelectedFilesChange, onFileUploadComplete }, re
                 key={file.id}
                 className={`p-3 rounded border transition-colors ${
                   selectedFiles.has(file.id)
-                    ? 'bg-blue-50 border-blue-200'
-                    : 'bg-gray-50 border-gray-200'
+                    ? 'bg-[var(--rovesg-secondary)]/35 border-[var(--rovesg-primary)]/40'
+                    : 'bg-[#182025] border-[var(--rovesg-border)]'
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -242,13 +242,13 @@ const FileList = forwardRef(({ onSelectedFilesChange, onFileUploadComplete }, re
                         type="checkbox"
                         checked={selectedFiles.has(file.id)}
                         onChange={() => toggleFileSelection(file.id)}
-                        className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        className="h-4 w-4 text-[var(--rovesg-primary)] rounded border-[var(--rovesg-border)] focus:ring-[var(--rovesg-primary)] bg-[#121619]"
                       />
-                      <p className="font-medium truncate" title={file.filename}>
+                      <p className="font-medium truncate text-[var(--rovesg-text)]" title={file.filename}>
                         {file.filename}
                       </p>
                     </div>
-                    <div className="text-sm text-gray-500 space-y-1 mt-1">
+                    <div className="text-sm text-[var(--rovesg-text-muted)] space-y-1 mt-1">
                       <p>Type: {file.type || 'Unknown'}</p>
                       <p>Size: {formatFileSize(file.size)}</p>
                       <p>Uploaded: {formatDate(file.uploadDate)}</p>

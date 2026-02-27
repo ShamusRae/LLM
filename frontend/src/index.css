@@ -3,13 +3,15 @@
 @tailwind utilities;
 
 :root {
-  --brand-bowling: #002466;
-  --brand-batting: #c8712d;
-  --brand-wicket: #660003;
-  --brand-signal: #819f3d;
-  --text-neutral: #404041;
-  --surface-soft: #f7f7f6;
-  --surface-card: #ffffff;
+  --rovesg-primary: #22c5a0;
+  --rovesg-secondary: #0a2342;
+  --rovesg-accent: #82d173;
+  --rovesg-bg: #121619;
+  --rovesg-surface: #1e252b;
+  --rovesg-text: #d8e3ea;
+  --rovesg-text-muted: #9fb2bf;
+  --rovesg-border: #2b3741;
+  --rovesg-glow: rgba(34, 197, 160, 0.28);
 }
 
 body {
@@ -19,8 +21,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: radial-gradient(circle at top left, #f8fafc 0%, #f3f4f6 45%, #e2e8f0 100%);
-  color: var(--text-neutral);
+  background: radial-gradient(circle at top left, #0a2342 0%, #121619 52%, #101416 100%);
+  color: var(--rovesg-text);
 }
 
 code {
@@ -36,4 +38,20 @@ code {
 
 .animate-fadeIn {
   animation: fadeIn 0.5s ease-out;
-} 
+}
+
+.rovesg-card {
+  background: linear-gradient(160deg, rgba(30, 37, 43, 0.96), rgba(24, 30, 35, 0.96));
+  border: 1px solid var(--rovesg-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.rovesg-primary-button {
+  background: linear-gradient(135deg, var(--rovesg-primary), var(--rovesg-accent));
+  color: #05121a;
+  box-shadow: 0 0 0 1px rgba(130, 209, 115, 0.22), 0 8px 18px var(--rovesg-glow);
+}
+
+.rovesg-primary-button:hover {
+  filter: brightness(1.04);
+}

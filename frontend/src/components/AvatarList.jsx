@@ -887,14 +887,14 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
       <div className="mt-2">
         <button 
           onClick={() => setShowTools(!showTools)}
-          className="text-sm text-blue-600 hover:text-blue-800"
+          className="text-sm text-[var(--rovesg-primary)] hover:text-[var(--rovesg-accent)]"
         >
           {showTools ? 'Hide Tools' : 'Configure Tools'}
         </button>
         
         {showTools && (
-          <div className="mt-2 p-2 bg-gray-50 rounded border">
-            <h4 className="text-sm font-medium mb-2">Available Tools</h4>
+          <div className="mt-2 p-2 bg-[#182025] rounded border border-[var(--rovesg-border)]">
+            <h4 className="text-sm font-medium mb-2 text-[var(--rovesg-text)]">Available Tools</h4>
             {availableTools.map(tool => (
               <div key={tool.id} className="flex items-center mb-1">
                 <input
@@ -906,14 +906,14 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
                 />
                 <label 
                   htmlFor={`tool-${avatar.id}-${tool.id}`}
-                  className="text-sm cursor-pointer"
+                  className="text-sm cursor-pointer text-[var(--rovesg-text-muted)]"
                 >
                   {tool.name}
                 </label>
               </div>
             ))}
             {availableTools.length === 0 && (
-              <p className="text-xs text-gray-500">No tools available</p>
+              <p className="text-xs text-[var(--rovesg-text-muted)]">No tools available</p>
             )}
           </div>
         )}
@@ -966,11 +966,11 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
   }
 
   return (
-    <div className="border rounded bg-white">
-      <div className="flex justify-between items-center p-4 border-b">
-        <h2 className="font-bold">Avatars</h2>
+    <div className="border border-[var(--rovesg-border)] rounded bg-[var(--rovesg-surface)]/75">
+      <div className="flex justify-between items-center p-4 border-b border-[var(--rovesg-border)]">
+        <h2 className="font-bold text-[var(--rovesg-text)]">Avatars</h2>
         <button
-          className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+          className="px-3 py-1 rounded rovesg-primary-button"
           onClick={() => handleEdit({
             id: Date.now(),
             name: '',
@@ -993,13 +993,13 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
               return (
                 <div
                   key={avatar.id}
-                  className={`relative border rounded p-3 cursor-pointer ${activeAvatars.some(a => a.id === avatar.id) ? 'border-blue-500' : ''}`}
+                  className={`relative border rounded p-3 cursor-pointer bg-[#182025] ${activeAvatars.some(a => a.id === avatar.id) ? 'border-[var(--rovesg-primary)]' : 'border-[var(--rovesg-border)]'}`}
                   onClick={() => handleToggle(avatar)}
                 >
                   <div className="absolute top-2 right-2 flex">
                     {!avatar.undeletable && (
                       <button
-                        className="mr-2 px-2 py-1 text-sm text-red-500 hover:text-red-700 bg-gray-100 hover:bg-gray-200 rounded flex items-center"
+                        className="mr-2 px-2 py-1 text-sm text-red-400 hover:text-red-300 bg-[#202a31] hover:bg-[#26323a] rounded flex items-center"
                         title="Delete avatar"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1012,7 +1012,7 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
                       </button>
                     )}
                     <button
-                      className="px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+                      className="px-2 py-1 text-sm bg-[#202a31] hover:bg-[#26323a] text-[var(--rovesg-text)] rounded"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleEdit(avatar);
@@ -1033,12 +1033,12 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
                       </div>
                     </div>
                     <div className="flex-grow min-w-0">
-                      <h3 className="font-semibold truncate">{avatar.name}</h3>
-                      {avatar.role && <p className="text-gray-600 text-sm truncate">{avatar.role}</p>}
+                      <h3 className="font-semibold truncate text-[var(--rovesg-text)]">{avatar.name}</h3>
+                      {avatar.role && <p className="text-[var(--rovesg-text-muted)] text-sm truncate">{avatar.role}</p>}
                       
                       {/* Show current model category only */}
                       {avatarResolvedModels[avatar.id] && (
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="text-xs text-[var(--rovesg-text-muted)] mt-1">
                           <span className="font-medium">
                             {avatarResolvedModels[avatar.id].category === 'Strategic' && '🧠'}
                             {avatarResolvedModels[avatar.id].category === 'General' && '⚖️'}
@@ -1050,7 +1050,7 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
                       )}
                       
                       {activeAvatars.some(a => a.id === avatar.id) && (
-                        <span className="text-sm text-green-600 font-semibold mt-1 block">✓ Selected</span>
+                        <span className="text-sm text-[var(--rovesg-accent)] font-semibold mt-1 block">✓ Selected</span>
                       )}
                     </div>
                   </div>
@@ -1064,7 +1064,7 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
               );
             })
           ) : (
-            <div className="p-4 text-center text-gray-500">
+            <div className="p-4 text-center text-[var(--rovesg-text-muted)]">
               <p>No avatars to display. Add your first avatar!</p>
             </div>
           )}

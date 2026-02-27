@@ -868,32 +868,32 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage, select
   };
 
   return (
-    <div className="bg-white rounded-b-2xl p-4 space-y-4 min-h-[500px] max-h-[800px] overflow-y-auto">
-      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border border-slate-200 rounded-xl p-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-          <span className="font-semibold text-slate-800">Debug</span>
-          <span className="px-2 py-1 rounded-full bg-slate-100">Avatars: {activeAvatars.length}</span>
-          <span className="px-2 py-1 rounded-full bg-slate-100">Feeds: {selectedDataFeeds.length}</span>
+    <div className="bg-[var(--rovesg-surface)]/75 rounded-b-2xl p-4 space-y-4 min-h-[500px] max-h-[800px] overflow-y-auto text-[var(--rovesg-text)]">
+      <div className="sticky top-0 z-10 bg-[var(--rovesg-surface)]/92 backdrop-blur border border-[var(--rovesg-border)] rounded-xl p-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--rovesg-text-muted)]">
+          <span className="font-semibold text-[var(--rovesg-text)]">Debug</span>
+          <span className="px-2 py-1 rounded-full bg-[#182025] border border-[var(--rovesg-border)]">Avatars: {activeAvatars.length}</span>
+          <span className="px-2 py-1 rounded-full bg-[#182025] border border-[var(--rovesg-border)]">Feeds: {selectedDataFeeds.length}</span>
           {selectedDataFeeds.slice(0, 3).map((feedId) => (
-            <span key={feedId} className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+            <span key={feedId} className="px-2 py-1 rounded-full bg-[var(--rovesg-secondary)]/40 text-[var(--rovesg-primary)] border border-[var(--rovesg-border)]">
               {feedId}
             </span>
           ))}
           {selectedDataFeeds.length > 3 && (
-            <span className="px-2 py-1 rounded-full bg-slate-100">+{selectedDataFeeds.length - 3} more</span>
+            <span className="px-2 py-1 rounded-full bg-[#182025] border border-[var(--rovesg-border)]">+{selectedDataFeeds.length - 3} more</span>
           )}
         </div>
       </div>
       {/* Global Thinking Indicator */}
       {isAvatarThinking && (
-        <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-3 mb-4 shadow-sm">
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-[var(--rovesg-secondary)]/30 to-[var(--rovesg-primary)]/20 border border-[var(--rovesg-border)] rounded-lg p-3 mb-4 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex space-x-1">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              <div className="w-2 h-2 bg-[var(--rovesg-primary)] rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-[var(--rovesg-accent)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+              <div className="w-2 h-2 bg-[var(--rovesg-primary)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
             </div>
-            <span className="text-sm font-medium text-gray-700">
+            <span className="text-sm font-medium text-[var(--rovesg-text)]">
               🤖 Avatar is thinking...
             </span>
           </div>
@@ -914,12 +914,12 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage, select
         
         const containerClasses = message.metadata?.isUser ? 'flex-row-reverse' : 'flex-row';
         const messageClasses = message.metadata?.isUser
-          ? 'bg-blue-100 text-blue-800'
+          ? 'bg-[var(--rovesg-secondary)]/35 border border-[var(--rovesg-border)] text-[var(--rovesg-text)]'
           : message.metadata?.isError
             ? 'bg-red-100 border border-red-300 text-red-700'
             : message.state?.type === 'thinking'
-              ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 text-yellow-900 shadow-md'
-              : 'bg-gray-100 text-gray-700';
+              ? 'bg-gradient-to-r from-[var(--rovesg-secondary)]/35 to-[var(--rovesg-primary)]/20 border-2 border-[var(--rovesg-accent)] text-[var(--rovesg-text)] shadow-md'
+              : 'bg-[#1a2228] border border-[var(--rovesg-border)] text-[var(--rovesg-text)]';
 
         return (
           <div 
@@ -938,14 +938,14 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage, select
                       <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
                       <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
                     </div>
-                    <div className="text-sm font-bold text-yellow-800">🧠 Thinking...</div>
+                    <div className="text-sm font-bold text-[var(--rovesg-primary)]">🧠 Thinking...</div>
                   </div>
                   {message.content?.text && (
-                    <div className="text-sm text-yellow-800 italic border-l-2 border-yellow-400 pl-2">
+                    <div className="text-sm text-[var(--rovesg-text)] italic border-l-2 border-[var(--rovesg-primary)] pl-2">
                       {message.content.text}
                     </div>
                   )}
-                  <div className="text-xs text-yellow-600 opacity-75">
+                  <div className="text-xs text-[var(--rovesg-text-muted)] opacity-75">
                     Processing your request - please wait...
                   </div>
                 </div>
@@ -953,19 +953,19 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage, select
                 renderMessageContent(message)
               )}
               {!message.metadata?.isUser && (
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--rovesg-text-muted)]">
                   {(message.provider || message.metadata?.debug?.provider) && (
-                    <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                    <span className="px-2 py-0.5 rounded-full bg-[#182025] border border-[var(--rovesg-border)]">
                       LLM: {message.provider || message.metadata?.debug?.provider}
                     </span>
                   )}
                   {(message.model || message.metadata?.debug?.model) && (
-                    <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                    <span className="px-2 py-0.5 rounded-full bg-[#182025] border border-[var(--rovesg-border)]">
                       Model: {message.model || message.metadata?.debug?.model}
                     </span>
                   )}
                   {typeof message.metadata?.debug?.toolsAvailable === 'number' && (
-                    <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                    <span className="px-2 py-0.5 rounded-full bg-[#182025] border border-[var(--rovesg-border)]">
                       Tools: {message.metadata.debug.toolsAvailable}
                     </span>
                   )}

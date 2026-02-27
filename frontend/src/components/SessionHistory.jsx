@@ -77,15 +77,15 @@ const SessionHistory = ({ onSessionLoad, sessionId }) => {
   };
 
   return (
-    <div className="border border-slate-200 rounded-2xl p-4 bg-white/95 backdrop-blur h-full shadow-md">
-      <h2 className="font-bold mb-4 text-[#002466]">Chat History</h2>
+    <div className="rovesg-card rounded-2xl p-4 backdrop-blur h-full">
+      <h2 className="font-bold mb-4 text-[var(--rovesg-primary)]">Chat History</h2>
       
       {loading ? (
-        <div className="text-center py-4 text-gray-500">Loading history...</div>
+        <div className="text-center py-4 text-[var(--rovesg-text-muted)]">Loading history...</div>
       ) : error ? (
         <div className="text-center py-4 text-red-500">{error}</div>
       ) : sessions.length === 0 ? (
-        <div className="text-center py-4 text-gray-500">No chat history yet</div>
+        <div className="text-center py-4 text-[var(--rovesg-text-muted)]">No chat history yet</div>
       ) : (
         <div className="space-y-2 max-h-[22rem] overflow-y-auto">
           {sessions.map(session => (
@@ -95,20 +95,20 @@ const SessionHistory = ({ onSessionLoad, sessionId }) => {
             >
               <button
                 onClick={() => onSessionLoad(session)}
-                className="w-full text-left p-3 rounded-xl border border-gray-200 hover:border-[#819f3d] hover:bg-[#819f3d]/10 transition-colors"
+                className="w-full text-left p-3 rounded-xl border border-[var(--rovesg-border)] bg-[#182025] hover:border-[var(--rovesg-accent)] hover:bg-[var(--rovesg-secondary)]/30 transition-colors"
               >
-                <div className="font-medium text-sm text-gray-900 truncate pr-8">
+                <div className="font-medium text-sm text-[var(--rovesg-text)] truncate pr-8">
                   {session.title}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="text-xs text-[var(--rovesg-text-muted)] mt-1">
                   {formatDate(session.updatedAt)}
                 </div>
               </button>
               <button
                 onClick={(e) => handleDelete(e, session)}
                 disabled={deleting === session.id}
-                className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 
-                  hover:text-red-500 transition-colors ${deleting === session.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 text-[var(--rovesg-text-muted)] 
+                  hover:text-red-400 transition-colors ${deleting === session.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                 title="Delete session"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">

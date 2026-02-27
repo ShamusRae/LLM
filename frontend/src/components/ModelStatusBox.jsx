@@ -145,35 +145,35 @@ const ModelStatusBox = () => {
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+    <div className="rovesg-card rounded-xl p-3">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-lg">{getStatusIcon()}</span>
-          <span className="font-medium text-sm">{getStatusText()}</span>
+          <span className="font-medium text-sm text-[var(--rovesg-text)]">{getStatusText()}</span>
         </div>
         {lastUpdated && (
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-[var(--rovesg-text-muted)]">
             {lastUpdated.toLocaleTimeString()}
           </span>
         )}
       </div>
       
-      <div className="text-xs space-y-1">
-        <div className="font-medium text-gray-700">Current Models:</div>
+      <div className="text-xs space-y-1 text-[var(--rovesg-text)]">
+        <div className="font-medium text-[var(--rovesg-text-muted)]">Current Models:</div>
         {Object.entries(status.modelMappings).map(([category, model]) => (
           <div key={category} className="flex items-center justify-between">
             <span className="flex items-center gap-1">
               <span>{getCategoryIcon(category)}</span>
               <span>{category}</span>
             </span>
-            <span className="text-[#002466] font-mono text-xs">{model}</span>
+            <span className="text-[var(--rovesg-primary)] font-mono text-xs">{model}</span>
           </div>
         ))}
       </div>
       
       {/* Service details */}
       {status.services && (
-        <div className="text-xs text-gray-500 mt-2 pt-2 border-t">
+        <div className="text-xs text-[var(--rovesg-text-muted)] mt-2 pt-2 border-t border-[var(--rovesg-border)]">
           <div className="flex gap-4">
             {status.services.openai?.available && (
               <span>🤖 OpenAI</span>
@@ -188,11 +188,11 @@ const ModelStatusBox = () => {
         </div>
       )}
 
-      <div className="text-xs text-gray-600 mt-2 pt-2 border-t border-slate-100">
-        <div className="font-medium text-gray-700 mb-1">Channel + Workflow:</div>
+      <div className="text-xs text-[var(--rovesg-text-muted)] mt-2 pt-2 border-t border-[var(--rovesg-border)]">
+        <div className="font-medium text-[var(--rovesg-text)] mb-1">Channel + Workflow:</div>
         <div className="flex items-center justify-between">
           <span>WhatsApp</span>
-          <span className="font-mono">
+          <span className="font-mono text-[var(--rovesg-primary)]">
             {status.whatsapp?.enabled ? (status.whatsapp?.connected ? 'connected' : 'enabled') : 'disabled'}
             {' '}
             ({status.whatsapp?.mode || 'n/a'})
@@ -200,11 +200,11 @@ const ModelStatusBox = () => {
         </div>
         <div className="flex items-center justify-between">
           <span>Workflow modes</span>
-          <span className="font-mono">{(status.workflow?.supportedModes || []).join(', ') || 'n/a'}</span>
+          <span className="font-mono text-[var(--rovesg-primary)]">{(status.workflow?.supportedModes || []).join(', ') || 'n/a'}</span>
         </div>
         <div className="flex items-center justify-between">
           <span>Last stage</span>
-          <span className="font-mono">{status.workflow?.lastRun?.finalStage || 'n/a'}</span>
+          <span className="font-mono text-[var(--rovesg-primary)]">{status.workflow?.lastRun?.finalStage || 'n/a'}</span>
         </div>
       </div>
     </div>
