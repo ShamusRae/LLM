@@ -8,6 +8,7 @@ import MCPToolUsage from './MCPToolUsage';
 import remarkGfm from 'remark-gfm';
 import AdaLovelaceAgent from './AdaLovelaceAgent';
 import ChatInput from './ChatInput';
+import { getBackendBaseUrl } from '../config/api';
 
 const CopyButton = ({ text }) => {
   const [copied, setCopied] = useState(false);
@@ -32,7 +33,7 @@ const CopyButton = ({ text }) => {
   );
 };
 
-const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage }) => {
+const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage, selectedDataFeeds = [], activeAvatars = [] }) => {
   const [expandedThinking, setExpandedThinking] = useState({});
   const [isAvatarThinking, setIsAvatarThinking] = useState(false);
   const messagesEndRef = useRef(null);
@@ -132,7 +133,9 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage }) => {
   const getAvatarImageUrl = (imageUrl) => {
     if (!imageUrl) return null;
     if (imageUrl.startsWith('http') || imageUrl.startsWith('data:')) return imageUrl;
-    return `http://localhost:3001${imageUrl}`;
+    const base = getBackendBaseUrl();
+    const path = imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`;
+    return base ? `${base}${path}` : path;
   };
 
   const handleImageError = (e, avatarName) => {
@@ -865,7 +868,22 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg border shadow-sm p-4 space-y-4 min-h-[500px] max-h-[800px] overflow-y-auto">
+    <div className="bg-white rounded-b-2xl p-4 space-y-4 min-h-[500px] max-h-[800px] overflow-y-auto">
+      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border border-slate-200 rounded-xl p-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <span className="font-semibold text-slate-800">Debug</span>
+          <span className="px-2 py-1 rounded-full bg-slate-100">Avatars: {activeAvatars.length}</span>
+          <span className="px-2 py-1 rounded-full bg-slate-100">Feeds: {selectedDataFeeds.length}</span>
+          {selectedDataFeeds.slice(0, 3).map((feedId) => (
+            <span key={feedId} className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+              {feedId}
+            </span>
+          ))}
+          {selectedDataFeeds.length > 3 && (
+            <span className="px-2 py-1 rounded-full bg-slate-100">+{selectedDataFeeds.length - 3} more</span>
+          )}
+        </div>
+      </div>
       {/* Global Thinking Indicator */}
       {isAvatarThinking && (
         <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-3 mb-4 shadow-sm">
@@ -933,6 +951,25 @@ const ChatWindow = ({ messages, selectedAvatar, sessionId, onSendMessage }) => {
                 </div>
               ) : (
                 renderMessageContent(message)
+              )}
+              {!message.metadata?.isUser && (
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                  {(message.provider || message.metadata?.debug?.provider) && (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                      LLM: {message.provider || message.metadata?.debug?.provider}
+                    </span>
+                  )}
+                  {(message.model || message.metadata?.debug?.model) && (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                      Model: {message.model || message.metadata?.debug?.model}
+                    </span>
+                  )}
+                  {typeof message.metadata?.debug?.toolsAvailable === 'number' && (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                      Tools: {message.metadata.debug.toolsAvailable}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
             {message.metadata?.isUser && renderAvatar(message)}

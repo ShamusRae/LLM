@@ -16,8 +16,16 @@ const retryWithBackoff = async (fn, retries = 3, backoff = 1000) => {
   }
 };
 
-exports.processChat = async ({ message, sessionId, avatarId, activeAvatars, selectedFiles, conversationContext = [], onUpdate }) => {
-  console.log('Processing chat:', { message, sessionId, avatarId, activeAvatars, selectedFiles, contextLength: conversationContext.length });
+exports.processChat = async ({ message, sessionId, avatarId, activeAvatars, selectedFiles, selectedDataFeeds = [], conversationContext = [], onUpdate }) => {
+  console.log('Processing chat:', {
+    message,
+    sessionId,
+    avatarId,
+    activeAvatars,
+    selectedFiles,
+    selectedDataFeeds,
+    contextLength: conversationContext.length
+  });
 
   try {
     // Use conversation context from frontend if available, otherwise fall back to saved session
@@ -57,6 +65,7 @@ exports.processChat = async ({ message, sessionId, avatarId, activeAvatars, sele
           chatHistory: previousResponses,
           activeAvatars: [avatar],
           selectedFiles,
+          selectedDataFeeds,
           onUpdate
         });
         
@@ -83,6 +92,7 @@ exports.processChat = async ({ message, sessionId, avatarId, activeAvatars, sele
         chatHistory: previousResponses,
         activeAvatars,
         selectedFiles,
+        selectedDataFeeds,
         onUpdate
       });
 

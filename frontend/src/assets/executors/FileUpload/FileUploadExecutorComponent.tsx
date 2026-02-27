@@ -25,6 +25,7 @@ import {
 import FileList from '../../../components/FileList';
 import { AssetOutput } from '../../models/AssetTypes';
 import { getFileTypeName } from '../../models/AssetTypes';
+import { getBackendBaseUrl } from '../../../config/api';
 import axios from 'axios';
 
 interface FileUploadExecutorComponentProps {
@@ -50,8 +51,7 @@ const getFileTypeIcon = (fileType: string) => {
   }
 };
 
-// API Base URL
-const API_BASE = 'http://localhost:3001';
+const getApiBase = (): string => getBackendBaseUrl() || '';
 
 /**
  * Component for executing the File Upload asset
@@ -91,7 +91,7 @@ const FileUploadExecutorComponent: React.FC<FileUploadExecutorComponentProps> = 
             
             try {
               // Call MarkItDown API to process the file with the correct base URL
-              const response = await axios.post(`${API_BASE}/api/file/${file.id}/process`, {
+              const response = await axios.post(`${getApiBase()}/api/file/${file.id}/process`, {
                 options: { extractAll: true }
               });
               

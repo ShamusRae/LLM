@@ -8,11 +8,8 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}🛑 Stopping LLM Chat Application...${NC}"
 
-pm2 stop all
+# Stop only this project's processes to avoid impacting unrelated PM2 apps
+pm2 stop backend frontend avatar-wrapper >/dev/null 2>&1 || true
+pm2 delete backend frontend avatar-wrapper >/dev/null 2>&1 || true
 
-if [ $? -eq 0 ]; then
-  echo -e "${GREEN}✅ All services stopped successfully!${NC}"
-else
-  echo -e "${RED}❌ Error stopping services${NC}"
-  exit 1
-fi 
+echo -e "${GREEN}✅ LLM Chat services stopped (backend, frontend, avatar-wrapper).${NC}"

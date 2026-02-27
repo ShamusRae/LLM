@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import Modal from '../components/Modal';
+import { getWebSocketUrl } from '../config/api';
 
 /**
  * ConsultingPage - Main interface for the Partner-Principal-Associate consulting system
@@ -41,7 +42,7 @@ const ConsultingPage = () => {
     }
 
     try {
-      const wsUrl = `ws://localhost:3001/ws/consulting`;
+      const wsUrl = getWebSocketUrl('/ws/consulting');
       const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {

@@ -33,19 +33,19 @@ const ChatInput = ({ onSendMessage, selectedAvatar }) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center px-4 py-2 border-t">
+    <form onSubmit={handleSubmit} className="flex items-center px-4 py-3 border-t border-slate-200 bg-white/90">
       <input
         ref={inputRef}
-        className="flex-1 p-2 mr-2 border border-gray-300 rounded"
+        className="flex-1 p-3 mr-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#819f3d] focus:border-[#819f3d] outline-none"
         type="text"
-        placeholder="Type your message..."
+        placeholder="Ask Rovesg research..."
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSubmit(e)}
         autoFocus={false}
       />
       <button
-        className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        className="px-4 py-2.5 bg-[#d38c55] text-white rounded-xl hover:bg-[#c8712d] shadow-sm"
         type="submit"
       >
         Send

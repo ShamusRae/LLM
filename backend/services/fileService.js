@@ -6,6 +6,7 @@ const ExcelJS = require('exceljs');
 const pdf = require('pdf-parse');
 const axios = require('axios');
 const crypto = require('crypto');
+const { getPublicBaseUrl } = require('../config');
 
 // Updated storage paths to use absolute paths relative to project root
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
@@ -252,7 +253,7 @@ Please respond with just the category name.`;
 
   try {
     console.log('Sending classification request...');
-    const response = await axios.post('http://localhost:3001/api/chat/send', {
+    const response = await axios.post(`${getPublicBaseUrl()}/api/chat/send`, {
       message: prompt,
       avatarInfo: {
         selectedModel: model

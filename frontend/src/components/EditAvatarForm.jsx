@@ -1,5 +1,6 @@
 import React from 'react';
 import Modal from './Modal';
+import { getBackendBaseUrl } from '../config/api';
 
 const EditAvatarForm = ({ formState, setFormState, handleSubmit, handleCancel, isGenerating, handleGenerateImage, models }) => {
   const handleMouseEvent = (e) => {
@@ -8,9 +9,10 @@ const EditAvatarForm = ({ formState, setFormState, handleSubmit, handleCancel, i
 
   const getAvatarImageUrl = (imageUrl) => {
     if (!imageUrl) return null;
-    if (imageUrl.startsWith('http')) return imageUrl;
-    if (imageUrl.startsWith('/')) return `http://localhost:3001${imageUrl}`;
-    return `http://localhost:3001/${imageUrl}`;
+    if (imageUrl.startsWith('http') || imageUrl.startsWith('data:')) return imageUrl;
+    const base = getBackendBaseUrl();
+    const path = imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`;
+    return base ? `${base}${path}` : path;
   };
 
   const handleImageError = (e) => {

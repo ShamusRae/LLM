@@ -18,13 +18,11 @@ export default defineConfig({
   server: {
     host: 'localhost',
     port: frontendPort,
-    strictPort: false, // Allow Vite to find an available port if needed
+    strictPort: true, // start.sh already discovers a free port
     hmr: {
       protocol: 'ws',
       host: 'localhost',
-      port: 5173,
-      clientPort: 5173,
-      timeout: 120000,
+      clientPort: frontendPort,
       overlay: true
     },
     watch: {
@@ -48,6 +46,12 @@ export default defineConfig({
             console.log('Received Response:', proxyRes.statusCode, req.url);
           });
         }
+      },
+      '/ws': {
+        target: `http://localhost:${apiPort}`,
+        changeOrigin: true,
+        secure: false,
+        ws: true
       },
       '/avatars': {
         target: `http://localhost:${apiPort}`,

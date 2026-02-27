@@ -135,7 +135,7 @@ Respond with a JSON object in this exact format:
     let provider, modelToUse;
     try {
       provider = aiService.getProvider('openai', process.env.OPENAI_API_KEY);
-      modelToUse = 'gpt-4';
+      modelToUse = 'gpt-4.1';
     } catch {
       try {
         provider = aiService.getProvider('claude', process.env.ANTHROPIC_API_KEY);
@@ -250,6 +250,7 @@ Respond with a JSON object in this exact format:
     // Strategic: Best reasoning models (Claude 4, O3, older Claude models, best local)
     if (modelName.includes('claude-opus-4-20250514') || 
         modelName.includes('claude-sonnet-4-20250514') ||
+        modelName.includes('gpt-5') ||
         modelName.includes('claude-3.5-sonnet-20240620') || 
         modelName.includes('claude-3-opus-20240229') ||
         modelName.includes('o3-') || modelName.includes('qwq') || 
@@ -260,6 +261,7 @@ Respond with a JSON object in this exact format:
     
     // General: Latest GPT-4o, balanced Claude, general purpose models
     if (modelName.includes('gpt-4o') || modelName.includes('chatgpt-4o') ||
+        modelName.includes('gemini') ||
         modelName.includes('claude-3-sonnet') || modelName.includes('gemma') ||
         modelName.includes('general')) {
       return 'General';
@@ -356,6 +358,8 @@ Respond with a JSON object in this exact format:
     // Premium models get highest scores (2025+ models)
     if (modelName.includes('claude-opus-4-20250514')) return 110; // Claude 4 Opus - absolute best!
     if (modelName.includes('claude-sonnet-4-20250514')) return 108; // Claude 4 Sonnet - excellent balance!
+    if (modelName.includes('gpt-5.2')) return 107;
+    if (modelName.includes('gpt-5')) return 106;
     if (modelName.includes('claude-3.5-sonnet-20240620')) return 100;
     if (modelName.includes('gpt-4.1-2025-04-14')) return 98;
     if (modelName.includes('o3-mini')) return 95;
@@ -366,6 +370,9 @@ Respond with a JSON object in this exact format:
     if (modelName.includes('claude-3-opus-20240229')) return 85;
     if (modelName.includes('gpt-4.1-nano-2025-04-14')) return 82;
     if (modelName.includes('gpt-4o')) return 80;
+    if (modelName.includes('gemini-2.5-pro')) return 84;
+    if (modelName.includes('gemini-2.5-flash')) return 76;
+    if (modelName.includes('gemini-2.0-flash')) return 70;
     if (modelName.includes('claude-3-sonnet-20240229')) return 75;
     if (modelName.includes('gpt-4-turbo')) return 70;
     if (modelName.includes('gpt-4')) return 65;

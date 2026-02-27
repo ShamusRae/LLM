@@ -33,7 +33,7 @@ const DataFeedsSelector = ({ onSelectionChange, initialSelection = [] }) => {
     { 
       id: 'yahoo-finance-stock-metric', 
       name: 'Yahoo Finance - Stock Metrics', 
-      description: 'Get current stock metrics like price, market cap, P/E ratio, etc.',
+      description: 'Get latest live stock metrics like regularMarketPrice, market cap, and P/E ratio.',
       icon: '📈'
     },
     { 
@@ -78,11 +78,11 @@ const DataFeedsSelector = ({ onSelectionChange, initialSelection = [] }) => {
     <div className="h-full flex flex-col">
       <div className="p-4 bg-white">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">Data Feeds</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Data Feeds</h2>
           <div className="space-x-2">
             <button
               onClick={() => toggleAll(true)}
-              className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+              className="px-2 py-1 text-xs bg-[#819f3d]/15 text-[#5f752f] rounded hover:bg-[#819f3d]/25"
             >
               Select All
             </button>
@@ -104,8 +104,8 @@ const DataFeedsSelector = ({ onSelectionChange, initialSelection = [] }) => {
               key={feed.id}
               className={`p-3 border rounded cursor-pointer transition-colors ${
                 selectedFeeds.includes(feed.id)
-                  ? 'border-blue-300 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
+                  ? 'border-[#819f3d] bg-[#819f3d]/10'
+                  : 'border-gray-200 hover:border-slate-300'
               }`}
               onClick={() => toggleFeed(feed.id)}
             >

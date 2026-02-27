@@ -3,10 +3,12 @@
 const OpenAIProvider = require('./openaiProvider');
 const ClaudeProvider = require('./claudeProvider');
 const OllamaProvider = require('./ollamaProvider');
+const GoogleProvider = require('./googleProvider');
 
 const providers = {
   openai: OpenAIProvider,
   claude: ClaudeProvider,
+  google: GoogleProvider,
   ollama: OllamaProvider,
 };
 
@@ -44,17 +46,22 @@ async function discoverModels() {
       console.warn('Claude models not available:', err.message);
       return [];
     }),
+    GoogleProvider.getAvailableModels(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY).catch(err => {
+      console.warn('Google models not available:', err.message);
+      return [];
+    }),
     OllamaProvider.getAvailableModels().catch(err => {
       console.warn('Ollama models not available:', err.message);
       return [];
     }),
   ];
 
-  const [openaiModels, claudeModels, ollamaModels] = await Promise.all(modelPromises);
+  const [openaiModels, claudeModels, googleModels, ollamaModels] = await Promise.all(modelPromises);
 
   return {
     openai: openaiModels,
     claude: claudeModels,
+    google: googleModels,
     ollama: ollamaModels,
   };
 }
@@ -63,6 +70,7 @@ async function getAvailableProviders() {
   const availability = {
     openai: validateApiKey('openai', process.env.OPENAI_API_KEY),
     claude: validateApiKey('claude', process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY),
+    google: validateApiKey('google', process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY),
     ollama: false, // Will be checked dynamically
     deepseek: false // Will be checked via ollama/local setup
   };
@@ -130,6 +138,9 @@ async function _callAIInternal(prompt, model = 'o4-mini', options = {}) {
     if (model.includes('claude')) {
       providerName = 'claude';
       apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+    } else if (model.includes('gemini')) {
+      providerName = 'google';
+      apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
     } else if (model.includes('gpt') || model.includes('o3') || model.includes('o4') || model.includes('o1')) {
       // Include all OpenAI o-series models
       providerName = 'openai';
@@ -180,6 +191,8 @@ async function _callAIInternal(prompt, model = 'o4-mini', options = {}) {
       content = response.choices?.[0]?.message?.content || response.content || response;
     } else if (providerName === 'claude') {
       content = response.content?.[0]?.text || response.content || response;
+    } else if (providerName === 'google') {
+      content = response.candidates?.[0]?.content?.parts?.[0]?.text || response.text || response.content || response;
     } else if (providerName === 'ollama') {
       content = response.response || response.content || response;
     } else {

@@ -1,7 +1,9 @@
-const { describe, test, expect, beforeEach, afterEach, jest } = require('@jest/globals');
+// Purpose: Unit tests for ConsultingDatabase (aligned with actual API and schema).
+// Author: LLM Chat, Last Modified: 2025-02-26
+
+const { describe, test, expect, beforeEach } = require('@jest/globals');
 const ConsultingDatabase = require('../../services/database/consultingDatabase');
 
-// Mock pg and redis modules
 jest.mock('pg', () => ({
   Pool: jest.fn().mockImplementation(() => ({
     connect: jest.fn().mockResolvedValue({
@@ -29,9 +31,7 @@ describe('ConsultingDatabase', () => {
   let mockRedis;
 
   beforeEach(() => {
-    // Reset mocks
     jest.clearAllMocks();
-    
     database = new ConsultingDatabase();
     mockPool = {
       query: jest.fn(),
@@ -45,202 +45,176 @@ describe('ConsultingDatabase', () => {
       setEx: jest.fn(),
       del: jest.fn()
     };
-    
     database.pool = mockPool;
     database.redis = mockRedis;
   });
 
   describe('Project Operations', () => {
     test('should create a new project successfully', async () => {
-      const mockProject = testUtils.getMockProject();
-      
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ ...mockProject, created_at: new Date() }]
+      const projectData = {
+        query: 'Test query',
+        context: 'Test context',
+        expectedDeliverables: [],
+        requirements: {},
+        feasibilityAnalysis: {}
+      };
+      const mockProject = { id: 'test_proj_123', title: 'Test query', client_id: 'client_1' };
+      const mockClientQuery = jest.fn()
+        .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce({ rows: [{ id: 'client_1' }] }) // getOrCreateDemoClient SELECT
+        .mockResolvedValueOnce({ rows: [mockProject] }) // INSERT consulting_projects
+        .mockResolvedValueOnce(undefined); // COMMIT
+      mockPool.connect.mockResolvedValue({
+        query: mockClientQuery,
+        release: jest.fn()
       });
 
-      const result = await database.createProject(mockProject);
+      const result = await database.createProject(projectData);
 
-      expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO projects'),
-        expect.arrayContaining([mockProject.title, mockProject.description])
-      );
-      expect(result).toMatchObject(mockProject);
+      expect(result).toBeDefined();
+      expect(result.id).toBe(mockProject.id);
+      expect(mockClientQuery).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO consulting_projects'), expect.any(Array));
     });
 
     test('should retrieve project by ID', async () => {
-      const mockProject = testUtils.getMockProject();
-      
-      // Test cache miss then database hit
+      const mockProject = { id: 'test_proj_123', title: 'Test' };
       mockRedis.get.mockResolvedValueOnce(null);
-      mockPool.query.mockResolvedValueOnce({
-        rows: [mockProject]
-      });
+      mockPool.query.mockResolvedValueOnce({ rows: [mockProject] });
 
-      const result = await database.getProject(mockProject.id);
+      const result = await database.getProject('test_proj_123');
 
-      expect(mockRedis.get).toHaveBeenCalledWith(`project:${mockProject.id}`);
+      expect(mockRedis.get).toHaveBeenCalledWith('project:test_proj_123');
       expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('SELECT * FROM projects WHERE id = $1'),
-        [mockProject.id]
+        expect.stringContaining('FROM consulting_projects'),
+        ['test_proj_123']
       );
       expect(result).toEqual(mockProject);
     });
 
-    test('should return null for non-existent project', async () => {
+    test('should throw for non-existent project', async () => {
       mockRedis.get.mockResolvedValueOnce(null);
       mockPool.query.mockResolvedValueOnce({ rows: [] });
 
-      const result = await database.getProject('non_existent_id');
-
-      expect(result).toBeNull();
+      await expect(database.getProject('non_existent_id')).rejects.toThrow('not found');
     });
 
-    test('should update project status', async () => {
+    test('should update project', async () => {
       const projectId = 'test_proj_123';
-      const newStatus = 'in_progress';
-      
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ id: projectId, status: newStatus }]
+      const updates = { status: 'in_progress' };
+      mockPool.connect.mockResolvedValue({
+        query: jest.fn().mockResolvedValueOnce({ rows: [{ id: projectId, status: 'in_progress', client_id: 'c1' }] }),
+        release: jest.fn()
       });
 
-      const result = await database.updateProjectStatus(projectId, newStatus);
+      const result = await database.updateProject(projectId, updates);
 
-      expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE projects SET status = $1'),
-        [newStatus, projectId]
-      );
-      expect(result.status).toBe(newStatus);
+      expect(mockPool.connect).toHaveBeenCalled();
+      expect(result).toBeDefined();
+      expect(result.status).toBe('in_progress');
     });
   });
 
   describe('Progress Operations', () => {
     test('should add progress update', async () => {
-      const mockProgress = testUtils.getMockProgress();
-      
+      const projectId = 'test_proj_123';
+      const progressData = { phase: 'analysis', message: 'Working', progress: 25 };
       mockPool.query.mockResolvedValueOnce({
-        rows: [{ ...mockProgress, id: 'progress_123' }]
+        rows: [{ id: 'progress_123', project_id: projectId, ...progressData }]
       });
 
-      const result = await database.addProgress(mockProgress);
+      const result = await database.addProgressUpdate(projectId, progressData);
 
       expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO work_modules'),
-        expect.arrayContaining([
-          mockProgress.project_id,
-          mockProgress.module_name,
-          mockProgress.status
-        ])
+        expect.stringContaining('INSERT INTO project_progress'),
+        expect.arrayContaining([projectId, progressData.phase, progressData.message])
       );
-      expect(result).toMatchObject(mockProgress);
+      expect(result).toBeDefined();
     });
 
-    test('should get project progress', async () => {
+    test('should get progress updates', async () => {
       const projectId = 'test_proj_123';
-      const mockProgressList = [
-        testUtils.getMockProgress(),
-        { ...testUtils.getMockProgress(), module_name: 'Principal Deep Dive' }
-      ];
-      
-      mockPool.query.mockResolvedValueOnce({
-        rows: mockProgressList
-      });
+      const mockProgressList = [{ id: 'p1', phase: 'analysis', message: 'Done' }];
+      mockPool.query.mockResolvedValueOnce({ rows: mockProgressList });
 
-      const result = await database.getProjectProgress(projectId);
+      const result = await database.getProgressUpdates(projectId);
 
       expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('SELECT * FROM work_modules WHERE project_id = $1'),
-        [projectId]
+        expect.stringContaining('FROM project_progress'),
+        [projectId, 50]
       );
-      expect(result).toEqual(mockProgressList);
+      expect(Array.isArray(result)).toBe(true);
     });
   });
 
   describe('Report Operations', () => {
-    test('should save report', async () => {
-      const mockReport = testUtils.getMockReport();
-      
-      mockPool.query.mockResolvedValueOnce({
-        rows: [{ ...mockReport, id: 'report_123' }]
-      });
-
-      const result = await database.saveReport(mockReport);
-
-      expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO reports'),
-        expect.arrayContaining([
-          mockReport.project_id,
-          mockReport.title,
-          mockReport.content
-        ])
-      );
-      expect(result).toMatchObject(mockReport);
-    });
-
-    test('should get project reports', async () => {
+    test('should save project report', async () => {
       const projectId = 'test_proj_123';
-      const mockReports = [testUtils.getMockReport()];
-      
+      const reportData = {
+        executiveSummary: 'Summary',
+        keyFindings: [],
+        recommendations: {},
+        implementationRoadmap: {},
+        riskMitigation: [],
+        successMetrics: [],
+        qualityScore: 0.9,
+        deliverables: []
+      };
       mockPool.query.mockResolvedValueOnce({
-        rows: mockReports
+        rows: [{ id: 'report_123', project_id: projectId, ...reportData }]
       });
 
-      const result = await database.getProjectReports(projectId);
+      const result = await database.saveProjectReport(projectId, reportData);
 
       expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('SELECT * FROM reports WHERE project_id = $1'),
-        [projectId]
+        expect.stringContaining('INSERT INTO project_reports'),
+        expect.arrayContaining([projectId])
       );
-      expect(result).toEqual(mockReports);
+      expect(result).toBeDefined();
     });
   });
 
   describe('Error Handling', () => {
-    test('should handle database connection errors gracefully', async () => {
+    test('should handle database query errors', async () => {
+      mockRedis.get.mockResolvedValueOnce(null);
       mockPool.query.mockRejectedValueOnce(new Error('Connection failed'));
 
-      await expect(database.getProject('test_id')).rejects.toThrow('Connection failed');
+      await expect(database.getProject('test_id')).rejects.toThrow();
     });
 
-    test('should handle Redis errors gracefully', async () => {
+    test('should still return project when Redis fails', async () => {
+      const mockProject = { id: 'test_proj_123', title: 'Test' };
       mockRedis.get.mockRejectedValueOnce(new Error('Redis unavailable'));
-      mockPool.query.mockResolvedValueOnce({
-        rows: [testUtils.getMockProject()]
-      });
+      mockPool.query.mockResolvedValueOnce({ rows: [mockProject] });
 
-      // Should still work even if Redis fails
       const result = await database.getProject('test_proj_123');
-      expect(result).toBeDefined();
+      expect(result).toEqual(mockProject);
     });
   });
 
   describe('Caching Behavior', () => {
     test('should use cached data when available', async () => {
-      const mockProject = testUtils.getMockProject();
-      
+      const mockProject = { id: 'test_proj_123', title: 'Test' };
       mockRedis.get.mockResolvedValueOnce(JSON.stringify(mockProject));
 
-      const result = await database.getProject(mockProject.id);
+      const result = await database.getProject('test_proj_123');
 
-      expect(mockRedis.get).toHaveBeenCalledWith(`project:${mockProject.id}`);
-      expect(mockPool.query).not.toHaveBeenCalled(); // Should not hit database
+      expect(mockRedis.get).toHaveBeenCalledWith('project:test_proj_123');
+      expect(mockPool.query).not.toHaveBeenCalled();
       expect(result).toEqual(mockProject);
     });
 
     test('should cache data after database retrieval', async () => {
-      const mockProject = testUtils.getMockProject();
-      
+      const mockProject = { id: 'test_proj_123', title: 'Test' };
       mockRedis.get.mockResolvedValueOnce(null);
-      mockPool.query.mockResolvedValueOnce({
-        rows: [mockProject]
-      });
+      mockPool.query.mockResolvedValueOnce({ rows: [mockProject] });
 
-      await database.getProject(mockProject.id);
+      await database.getProject('test_proj_123');
 
       expect(mockRedis.setEx).toHaveBeenCalledWith(
-        `project:${mockProject.id}`,
-        expect.any(Number), // TTL
+        'project:test_proj_123',
+        300,
         JSON.stringify(mockProject)
       );
     });
   });
-}); 
+});

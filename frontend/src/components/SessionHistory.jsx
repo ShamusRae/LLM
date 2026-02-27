@@ -77,8 +77,8 @@ const SessionHistory = ({ onSessionLoad, sessionId }) => {
   };
 
   return (
-    <div className="border rounded p-4 bg-white">
-      <h2 className="font-bold mb-4">Chat History</h2>
+    <div className="border border-slate-200 rounded-2xl p-4 bg-white/95 backdrop-blur h-full shadow-md">
+      <h2 className="font-bold mb-4 text-[#002466]">Chat History</h2>
       
       {loading ? (
         <div className="text-center py-4 text-gray-500">Loading history...</div>
@@ -87,7 +87,7 @@ const SessionHistory = ({ onSessionLoad, sessionId }) => {
       ) : sessions.length === 0 ? (
         <div className="text-center py-4 text-gray-500">No chat history yet</div>
       ) : (
-        <div className="space-y-2 max-h-96 overflow-y-auto">
+        <div className="space-y-2 max-h-[22rem] overflow-y-auto">
           {sessions.map(session => (
             <div
               key={session.id}
@@ -95,7 +95,7 @@ const SessionHistory = ({ onSessionLoad, sessionId }) => {
             >
               <button
                 onClick={() => onSessionLoad(session)}
-                className="w-full text-left p-3 rounded border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                className="w-full text-left p-3 rounded-xl border border-gray-200 hover:border-[#819f3d] hover:bg-[#819f3d]/10 transition-colors"
               >
                 <div className="font-medium text-sm text-gray-900 truncate pr-8">
                   {session.title}

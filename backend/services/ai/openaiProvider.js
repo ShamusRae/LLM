@@ -101,7 +101,7 @@ class OpenAIProvider extends BaseProvider {
       
       // Handle function calls if the model made any
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-        const { mcpServer } = require('../mcpService');
+        const mcpBridge = require('../mcpBridge');
         let functionResults = [];
         
         for (const toolCall of responseMessage.tool_calls) {
@@ -112,7 +112,7 @@ class OpenAIProvider extends BaseProvider {
             console.log(`OpenAI model calling function: ${functionName} with args:`, functionArgs);
             
             // Execute the function through MCP server
-            const result = await mcpServer.executeFunction(functionName, functionArgs);
+            const result = await mcpBridge.executeFunction(functionName, functionArgs);
             
             functionResults.push({
               tool_call_id: toolCall.id,
@@ -158,7 +158,7 @@ class OpenAIProvider extends BaseProvider {
         console.log(`⚠️ o3-series model ${model} not yet available in API - falling back to GPT-4.1`);
         
         // Intelligent fallback: o3 -> gpt-4.1, o3-mini -> gpt-4.1
-        const fallbackModel = model.includes('o3-mini') ? 'gpt-4' : 'gpt-4';
+        const fallbackModel = model.includes('mini') ? 'gpt-4.1-mini' : 'gpt-4.1';
         console.log(`🔄 Fallback: ${model} → ${fallbackModel}`);
         
         // Retry with fallback model
@@ -203,11 +203,11 @@ class OpenAIProvider extends BaseProvider {
     if (!apiKey) {
       // Return static list of known OpenAI models when no API key
       return [
-        { id: 'o3', name: 'o3 (Elite Reasoning)' },
-        { id: 'o3-mini', name: 'o3-mini (Cost-Effective Reasoning)' },
-        { id: 'gpt-4.1', name: 'GPT-4.1 (Large Context)' },
-        { id: 'gpt-4', name: 'GPT-4' },
-        { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
+        { id: 'gpt-5.2', name: 'GPT-5.2' },
+        { id: 'gpt-5.2-mini', name: 'GPT-5.2 Mini' },
+        { id: 'o4-mini', name: 'o4-mini' },
+        { id: 'o3', name: 'o3' },
+        { id: 'gpt-4.1', name: 'GPT-4.1' }
       ];
     }
 
@@ -217,12 +217,13 @@ class OpenAIProvider extends BaseProvider {
         timeout: 10000 // 10 second timeout
       });
 
-      // Filter and prioritize OpenAI models, putting o3 series first
+      // Filter and prioritize OpenAI models.
       const allModels = response.data.data
         .filter(model => 
           model.id.includes('gpt') || 
           model.id.includes('o3') || 
-          model.id.includes('o4')
+          model.id.includes('o4') ||
+          model.id.includes('o1')
         )
         .map(model => ({
           id: model.id,
@@ -231,9 +232,11 @@ class OpenAIProvider extends BaseProvider {
 
       // Add known models that might not appear in API response yet
       const knownModels = [
-        { id: 'o3', name: 'o3 (Elite Reasoning)' },
-        { id: 'o3-mini', name: 'o3-mini (Cost-Effective Reasoning)' },
-        { id: 'gpt-4.1', name: 'GPT-4.1 (Large Context)' }
+        { id: 'gpt-5.2', name: 'GPT-5.2' },
+        { id: 'gpt-5.2-mini', name: 'GPT-5.2 Mini' },
+        { id: 'o4-mini', name: 'o4-mini' },
+        { id: 'o3', name: 'o3' },
+        { id: 'gpt-4.1', name: 'GPT-4.1' }
       ];
 
       // Merge with API models, avoiding duplicates
@@ -253,11 +256,11 @@ class OpenAIProvider extends BaseProvider {
       // Return fallback list with o3/o4 models
       console.log('🔄 Using fallback OpenAI model list including o3/o4 series');
       return [
-        { id: 'o3', name: 'o3 (Elite Reasoning)' },
-        { id: 'o3-mini', name: 'o3-mini (Cost-Effective Reasoning)' },
-        { id: 'gpt-4.1', name: 'GPT-4.1 (Large Context)' },
-        { id: 'gpt-4', name: 'GPT-4' },
-        { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
+        { id: 'gpt-5.2', name: 'GPT-5.2' },
+        { id: 'gpt-5.2-mini', name: 'GPT-5.2 Mini' },
+        { id: 'o4-mini', name: 'o4-mini' },
+        { id: 'o3', name: 'o3' },
+        { id: 'gpt-4.1', name: 'GPT-4.1' }
       ];
     }
   }

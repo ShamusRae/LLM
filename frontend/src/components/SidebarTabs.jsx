@@ -3,11 +3,7 @@ import FileList from './FileList';
 import DataFeedsSelector from './DataFeedsSelector';
 
 /**
- * Sidebar component that provides a tabbed interface for Files and Data Feeds
- * Using CLA brand colors from the style guide:
- * - Navy: #2d3c59
- * - Teal: #7dd2d3
- * - Light Cloud: #f7f7f6
+ * Sidebar component that provides a tabbed interface for Files and Data Feeds.
  */
 const SidebarTabs = forwardRef(({ onSelectedFilesChange, onSelectedDataFeedsChange, initialDataFeeds = [] }, ref) => {
   const [activeTab, setActiveTab] = useState('files'); // 'files' or 'dataFeeds'
@@ -23,14 +19,14 @@ const SidebarTabs = forwardRef(({ onSelectedFilesChange, onSelectedDataFeedsChan
   }));
 
   return (
-    <div className="border rounded bg-[#f7f7f6] flex flex-col">
+    <div className="border border-slate-200 rounded-2xl bg-white/90 backdrop-blur flex flex-col h-full shadow-md">
       {/* Tab headers */}
-      <div className="flex border-b bg-white">
+      <div className="flex border-b bg-white/95 rounded-t-2xl">
         <button
           className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
             activeTab === 'files'
-              ? 'text-[#2d3c59] border-b-4 border-[#7dd2d3] font-bold'
-              : 'text-gray-500 hover:text-[#2d3c59]'
+              ? 'text-[#002466] border-b-4 border-[#819f3d] font-bold'
+              : 'text-gray-500 hover:text-[#002466]'
           }`}
           onClick={() => setActiveTab('files')}
         >
@@ -39,8 +35,8 @@ const SidebarTabs = forwardRef(({ onSelectedFilesChange, onSelectedDataFeedsChan
         <button
           className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
             activeTab === 'dataFeeds'
-              ? 'text-[#2d3c59] border-b-4 border-[#7dd2d3] font-bold'
-              : 'text-gray-500 hover:text-[#2d3c59]'
+              ? 'text-[#002466] border-b-4 border-[#819f3d] font-bold'
+              : 'text-gray-500 hover:text-[#002466]'
           }`}
           onClick={() => setActiveTab('dataFeeds')}
         >

@@ -12,7 +12,8 @@ exports.discoverAvailableModels = async () => {
   const models = {
     ollama: [],
     openai: [],
-    claude: []
+    claude: [],
+    google: []
   };
 
   // First check Ollama availability as it's local
@@ -51,7 +52,7 @@ exports.discoverAvailableModels = async () => {
       // Filter and map OpenAI models
       const filteredModels = openaiResponse.data.data.filter(model => {
         const modelId = model.id.toLowerCase();
-        return modelId.includes('gpt-') || modelId.startsWith('o1-');
+        return modelId.includes('gpt-') || modelId.startsWith('o1') || modelId.startsWith('o3') || modelId.startsWith('o4');
       });
       
       models.openai = filteredModels;
@@ -65,14 +66,11 @@ exports.discoverAvailableModels = async () => {
     try {
       // Claude doesn't have a model list endpoint, so we use known available models
       const knownClaudeModels = [
-        // Claude 4 models (latest and best!)
         { id: 'claude-opus-4-20250514', name: 'Claude 4 Opus' },
         { id: 'claude-sonnet-4-20250514', name: 'Claude 4 Sonnet' },
-        // Claude 3 models (fallback)
-        { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-        { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet' }, 
-        { id: 'claude-3.5-sonnet-20240620', name: 'Claude 3.5 Sonnet' },
-        { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' }
+        { id: 'claude-3.7-sonnet-20250219', name: 'Claude 3.7 Sonnet' },
+        { id: 'claude-3.5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
+        { id: 'claude-3.5-haiku-20241022', name: 'Claude 3.5 Haiku' }
       ];
       
       models.claude = knownClaudeModels.map(model => ({
@@ -88,6 +86,20 @@ exports.discoverAvailableModels = async () => {
     }
   }
 
+  // Google Gemini (optional)
+  if ((process.env.GOOGLE_API_KEY && process.env.GOOGLE_API_KEY !== 'your_google_api_key_here') ||
+      (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_google_api_key_here')) {
+    try {
+      models.google = [
+        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', object: 'model', created: Date.now(), owned_by: 'google' },
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', object: 'model', created: Date.now(), owned_by: 'google' },
+        { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', object: 'model', created: Date.now(), owned_by: 'google' }
+      ];
+    } catch (error) {
+      console.error('Error adding Google models:', error.message);
+    }
+  }
+
   // Get default model (prefer Ollama if available since it's local)
   const defaultModel = models.ollama.length > 0 
     ? { provider: 'ollama', id: models.ollama[0].id }
@@ -95,6 +107,8 @@ exports.discoverAvailableModels = async () => {
       ? { provider: 'openai', id: models.openai[0].id }
     : models.claude.length > 0
       ? { provider: 'claude', id: models.claude[0].id }
+    : models.google.length > 0
+      ? { provider: 'google', id: models.google[0].id }
       : null;
 
   return {
@@ -204,7 +218,7 @@ exports.resolveAvatarModel = async (avatar, preferLocal = false) => {
     }
     
     // Ultimate fallback
-    return 'openai:gpt-4-turbo-preview';
+    return 'openai:gpt-4.1';
   }
   
   console.log(`✅ Resolved ${avatar.name} | ${category} → ${targetCategory} → ${model.id} (Local: ${model.isLocal})`);

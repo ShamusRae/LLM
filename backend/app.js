@@ -5,13 +5,12 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const fsPromises = fs.promises;
+const { getCorsOrigins } = require('./config');
 const app = express();
 
-require('dotenv').config({ path: '../.env' });
-
-// Middleware
+// Middleware: CORS from config (env CORS_ORIGINS or default localhost dev ports)
 const corsOptions = {
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
+  origin: getCorsOrigins(),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With'],
   exposedHeaders: ['Content-Type', 'Authorization'],

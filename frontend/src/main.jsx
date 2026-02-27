@@ -5,6 +5,11 @@ import { store } from './state/store';
 import App from './App';
 import './index.css';
 
+// Expose Vite env to config/api (avoids import.meta in api.ts so Jest can compile)
+if (typeof globalThis !== 'undefined') {
+  globalThis.__VITE_ENV__ = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {};
+}
+
 // Disable Mirage if it exists - this prevents Mirage from intercepting API requests
 if (window.server && typeof window.server.shutdown === 'function') {
   console.log('Shutting down Mirage server');

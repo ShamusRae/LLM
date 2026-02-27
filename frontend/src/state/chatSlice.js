@@ -4,7 +4,7 @@ import axios from 'axios';
 // Thunk for sending a message
 export const sendMessage = createAsyncThunk(
   'chat/sendMessage',
-  async ({ message, sessionId, activeAvatars, selectedFiles }, { rejectWithValue, getState }) => {
+  async ({ message, sessionId, activeAvatars, selectedFiles, selectedDataFeeds }, { rejectWithValue, getState }) => {
     try {
       // Get current messages for context
       const state = getState();
@@ -25,6 +25,7 @@ export const sendMessage = createAsyncThunk(
         sessionId,
         activeAvatars,
         selectedFiles,
+        selectedDataFeeds,
         conversationContext, // Add context for backend
       });
       
@@ -48,7 +49,7 @@ export const sendMessage = createAsyncThunk(
         };
         
         // Save session asynchronously (don't wait for it)
-        axios.post('/api/chat/sessions', sessionData).catch(console.error);
+        axios.post('/api/chat/session', sessionData).catch(console.error);
       } catch (saveError) {
         console.warn('Failed to save session:', saveError);
       }
@@ -75,6 +76,7 @@ const initialState = {
   sessionId: new Date().getTime().toString(),
   activeAvatars: [],
   selectedFiles: [],
+  selectedDataFeeds: [],
   status: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed'
   error: null,
   sessions: [],
@@ -94,10 +96,22 @@ const chatSlice = createSlice({
       }
     },
     setActiveAvatars: (state, action) => {
-      state.activeAvatars = action.payload;
+      const incoming = Array.isArray(action.payload) ? action.payload : [];
+      const seen = new Set();
+      state.activeAvatars = incoming.filter((avatar) => {
+        const id = avatar?.id;
+        if (id === undefined || id === null || seen.has(String(id))) {
+          return false;
+        }
+        seen.add(String(id));
+        return true;
+      });
     },
     setSelectedFiles: (state, action) => {
       state.selectedFiles = action.payload;
+    },
+    setSelectedDataFeeds: (state, action) => {
+      state.selectedDataFeeds = Array.isArray(action.payload) ? action.payload : [];
     },
     startNewSession: (state) => {
       state.sessionId = new Date().getTime().toString();
@@ -157,6 +171,7 @@ const chatSlice = createSlice({
               metadata: { 
                 isUser: false, 
                 isError: apiResponse.error || false,
+                debug: apiResponse.debug || null,
                 avatar: activeAvatar || {
                   id: apiResponse.avatarId,
                   name: apiResponse.avatarName || "Unknown Avatar",
@@ -199,6 +214,7 @@ export const {
   updateMessage, 
   setActiveAvatars, 
   setSelectedFiles,
+  setSelectedDataFeeds,
   startNewSession 
 } = chatSlice.actions;
 

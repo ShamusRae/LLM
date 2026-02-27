@@ -1,5 +1,5 @@
 // Global test setup for Professional Consulting Platform
-const { jest } = require('@jest/globals');
+// (jest is global in Jest; do not re-declare to avoid "already been declared" errors)
 
 // Set test environment variables
 process.env.NODE_ENV = 'test';

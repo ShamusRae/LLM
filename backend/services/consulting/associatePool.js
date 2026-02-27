@@ -252,8 +252,8 @@ Respond with a JSON object containing these fields.`;
       console.log(`🧠 ASSOCIATE AI: Getting ${specialistType} analysis with REAL DATA ACCESS`);
       
       // 🌐 ENABLE INTERNET ACCESS: Get function definitions for real data
-      const { mcpServer } = require('../mcpService');
-      const functionDefinitions = mcpServer.getFunctionDefinitions();
+      const mcpBridge = require('../mcpBridge');
+      const functionDefinitions = mcpBridge.getFunctionDefinitions();
       
       console.log(`🔧 ASSOCIATE: Enabled ${functionDefinitions.length} internet tools for ${specialistType}`);
       

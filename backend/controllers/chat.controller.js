@@ -75,7 +75,7 @@ exports.streamChat = async (req, res) => {
 
 exports.sendChat = async (req, res) => {
   try {
-    const { message, sessionId, avatarId, activeAvatars, selectedFiles, conversationContext } = req.body;
+    const { message, sessionId, avatarId, activeAvatars, selectedFiles, selectedDataFeeds, conversationContext } = req.body;
     
     // Get the sendUpdate function for this session (optional now)
     const sendUpdate = streamResponses.get(sessionId);
@@ -106,6 +106,7 @@ exports.sendChat = async (req, res) => {
       avatarId, 
       activeAvatars,
       selectedFiles,
+      selectedDataFeeds,
       conversationContext, // Pass conversation context to backend
       onUpdate: safeSendUpdate
     });

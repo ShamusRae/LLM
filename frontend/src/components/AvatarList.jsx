@@ -44,6 +44,8 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
   const componentMounted = React.useRef(false);
   // Add a reference to track last time we loaded avatars
   const lastLoadTime = React.useRef(0);
+  // Auto-select a default avatar exactly once per mount.
+  const hasAutoSelectedDefault = React.useRef(false);
 
   const [formState, setFormState] = useState({
     name: '',
@@ -162,6 +164,22 @@ const AvatarList = ({ onAvatarToggle, activeAvatars, onAvatarSelect, selectedAva
       resolveAvatarModels(avatars);
     }
   }, [avatars, avatarsLoaded, resolveAvatarModels]);
+
+  // Default to selecting the first avatar once avatars are loaded.
+  useEffect(() => {
+    if (
+      avatarsLoaded &&
+      Array.isArray(avatars) &&
+      avatars.length > 0 &&
+      Array.isArray(activeAvatars) &&
+      activeAvatars.length === 0 &&
+      typeof onAvatarToggle === 'function' &&
+      !hasAutoSelectedDefault.current
+    ) {
+      hasAutoSelectedDefault.current = true;
+      onAvatarToggle([avatars[0]]);
+    }
+  }, [avatarsLoaded, avatars, activeAvatars, onAvatarToggle]);
 
   // On mount, always force a refresh and set the mounted flag
   useEffect(() => {

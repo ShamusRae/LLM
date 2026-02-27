@@ -1,13 +1,13 @@
 /**
  * RD-Agent Service
- * 
- * Handles interactions with the RD-Agent Avatar Wrapper API for predictive modeling
+ * Handles interactions with the RD-Agent Avatar Wrapper API for predictive modeling.
+ * Uses VITE_AVATAR_WRAPPER_URL when set (Mac/Linux/Azure); else fallback for dev.
  */
 
 import axios from 'axios';
+import { getAvatarWrapperBaseUrl } from '../config/api';
 
-// Base URL for the Avatar Agent Wrapper API - now in modules directory
-const API_BASE_URL = process.env.REACT_APP_RD_AGENT_API_URL || 'http://localhost:3002/api';
+const API_BASE_URL = getAvatarWrapperBaseUrl() ? `${getAvatarWrapperBaseUrl().replace(/\/$/, '')}/api` : 'http://localhost:3002/api';
 
 // Default polling options
 const DEFAULT_POLL_INTERVAL = 5000; // 5 seconds between requests

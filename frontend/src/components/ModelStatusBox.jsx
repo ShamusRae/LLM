@@ -133,7 +133,7 @@ const ModelStatusBox = () => {
   };
 
   return (
-    <div className="bg-white border rounded-lg p-3 shadow-sm">
+    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-lg">{getStatusIcon()}</span>
@@ -154,7 +154,7 @@ const ModelStatusBox = () => {
               <span>{getCategoryIcon(category)}</span>
               <span>{category}</span>
             </span>
-            <span className="text-blue-600 font-mono text-xs">{model}</span>
+            <span className="text-[#002466] font-mono text-xs">{model}</span>
           </div>
         ))}
       </div>

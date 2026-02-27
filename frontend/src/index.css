@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --brand-bowling: #002466;
+  --brand-batting: #c8712d;
+  --brand-wicket: #660003;
+  --brand-signal: #819f3d;
+  --text-neutral: #404041;
+  --surface-soft: #f7f7f6;
+  --surface-card: #ffffff;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -9,6 +19,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: radial-gradient(circle at top left, #f8fafc 0%, #f3f4f6 45%, #e2e8f0 100%);
+  color: var(--text-neutral);
 }
 
 code {

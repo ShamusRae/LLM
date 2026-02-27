@@ -17,7 +17,9 @@ const yahooFinance = require('yahoo-finance2').default;
  */
 async function getStockMetric(options) {
   try {
-    console.log(`Fetching Yahoo Finance data for ${options.symbol}, metric: ${options.metric}`);
+    const requestedMetric = options.metric || 'regularMarketPrice';
+    const normalizedMetric = normalizeMetricName(requestedMetric);
+    console.log(`Fetching Yahoo Finance data for ${options.symbol}, metric: ${requestedMetric} (normalized: ${normalizedMetric})`);
     
     // Fetch the quote data from Yahoo Finance API with error handling
     let quote;
@@ -35,7 +37,7 @@ async function getStockMetric(options) {
     
     // Get additional info for metrics not in quote
     let info = {};
-    if (!quote[options.metric]) {
+    if (allDataMissingMetric(quote, normalizedMetric)) {
       try {
         const additionalInfo = await yahooFinance.quoteSummary(options.symbol, { modules: ['financialData', 'summaryDetail', 'price'] });
         info = {
@@ -52,21 +54,29 @@ async function getStockMetric(options) {
     const allData = { ...quote, ...info };
     
     // Check if the requested metric exists
-    if (options.metric in allData) {
+    if (normalizedMetric in allData) {
+      const marketTimeMs = allData.regularMarketTime ? Number(allData.regularMarketTime) * 1000 : null;
       const result = {
         symbol: options.symbol,
-        [options.metric]: allData[options.metric],
-        longName: allData.longName || allData.shortName || options.symbol
+        metric: requestedMetric,
+        normalizedMetric,
+        value: allData[normalizedMetric],
+        longName: allData.longName || allData.shortName || options.symbol,
+        asOf: marketTimeMs ? new Date(marketTimeMs).toISOString() : new Date().toISOString(),
+        source: 'yahoo-finance-live-quote'
       };
       
       // Add some common fields when requesting price
-      if (options.metric === 'currentPrice' || options.metric === 'regularMarketPrice') {
+      if (normalizedMetric === 'regularMarketPrice') {
         // Safely add additional price fields if they exist
         if (allData.regularMarketChangePercent !== undefined) {
           result.regularMarketChangePercent = allData.regularMarketChangePercent;
         }
         if (allData.regularMarketChange !== undefined) {
           result.regularMarketChange = allData.regularMarketChange;
+        }
+        if (allData.regularMarketPreviousClose !== undefined) {
+          result.regularMarketPreviousClose = allData.regularMarketPreviousClose;
         }
       }
       
@@ -80,7 +90,7 @@ async function getStockMetric(options) {
       return {
         content: [{ 
           type: "text", 
-          text: JSON.stringify({ error: `Metric '${options.metric}' not found for symbol ${options.symbol}` }, null, 2)
+          text: JSON.stringify({ error: `Metric '${requestedMetric}' not found for symbol ${options.symbol}` }, null, 2)
         }],
         isError: true
       };
@@ -95,6 +105,19 @@ async function getStockMetric(options) {
       isError: true
     };
   }
+}
+
+function normalizeMetricName(metric) {
+  const raw = String(metric || '').trim();
+  if (!raw) return 'regularMarketPrice';
+  if (raw === 'currentPrice' || raw === 'price' || raw === 'latestPrice') {
+    return 'regularMarketPrice';
+  }
+  return raw;
+}
+
+function allDataMissingMetric(data, metric) {
+  return data[metric] === undefined || data[metric] === null;
 }
 
 /**

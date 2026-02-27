@@ -10,6 +10,11 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}📊 LLM Chat Application Status${NC}"
 echo ""
 
+echo -e "${YELLOW}🧩 Runtime:${NC}"
+echo -e "   Node: ${GREEN}$(node -v 2>/dev/null || echo 'not found')${NC}"
+echo -e "   NPM:  ${GREEN}$(npm -v 2>/dev/null || echo 'not found')${NC}"
+echo ""
+
 # Show PM2 status
 echo -e "${YELLOW}🔧 PM2 Process Status:${NC}"
 pm2 status
@@ -43,5 +48,6 @@ echo ""
 echo -e "${BLUE}💡 Available commands:${NC}"
 echo -e "   ${GREEN}./start.sh${NC}  - Start all services with dynamic port discovery"
 echo -e "   ${GREEN}./stop.sh${NC}   - Stop all services"
+echo -e "   ${GREEN}./restart.sh${NC} - Restart and run health checks"
 echo -e "   ${GREEN}./logs.sh${NC}   - View real-time logs"
 echo -e "   ${GREEN}./status.sh${NC} - Show this status information" 

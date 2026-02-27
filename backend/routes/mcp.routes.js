@@ -7,6 +7,7 @@ const path = require('path');
 const settingsPath = path.join(__dirname, '../../storage/settings.json');
 const { createFileFromExternalSource } = require('../services/fileService');
 const mcpService = require('../services/mcpService');
+const mcpBridge = require('../services/mcpBridge');
 
 // A map to track active SSE connections by session ID
 const sseConnections = new Map();
@@ -105,11 +106,26 @@ router.post('/messages/:sessionId', async (req, res) => {
 
 // Simple status endpoint to check if MCP service is running
 router.get('/status', (req, res) => {
+  const tools = mcpBridge.listTools();
   res.json({
     status: 'ok',
-    tools: mcpServer.getAvailableTools(),
-    version: '1.0.0'
+    tools,
+    toolCount: tools.length,
+    bridge: mcpBridge.getBridgeDiagnostics(),
+    version: '1.1.0'
   });
+});
+
+// MCP bridge diagnostics (provider, node compatibility, selected server, config path)
+router.get('/bridge/diagnostics', (req, res) => {
+  try {
+    res.json({
+      status: 'ok',
+      bridge: mcpBridge.getBridgeDiagnostics()
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', error: error.message });
+  }
 });
 
 // Get available MCP tools
@@ -120,7 +136,7 @@ router.get('/tools', async (req, res) => {
     const enabledDataFeeds = settings.enabledDataFeeds || ['google-maps-search'];
     
     // Filter tools based on enabled data feeds
-    const allTools = mcpServer.getAvailableTools();
+    const allTools = mcpBridge.listTools();
     const filteredTools = allTools.filter(tool => enabledDataFeeds.includes(tool.id));
     
     res.json(filteredTools);
@@ -151,7 +167,7 @@ router.post('/execute/:toolId', async (req, res) => {
     }
     
     // Execute tool using the correct method name
-    const result = await mcpServer.callToolDirectly(toolId, params);
+    const result = await mcpBridge.callTool(toolId, params);
     res.json(result);
   } catch (error) {
     console.error(`Error executing tool ${toolId}:`, error);

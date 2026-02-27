@@ -1,0 +1,8 @@
+{
+  "provider": "internal",
+  "strictMode": false,
+  "server": "",
+  "command": "npx",
+  "args": ["mcporter"],
+  "pathPrefix": "/opt/homebrew/bin:/usr/local/bin"
+}

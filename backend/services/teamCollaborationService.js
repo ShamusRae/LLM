@@ -11,7 +11,7 @@ class TeamCollaborationService {
   /**
    * Main orchestration method for team collaboration WITH INTERNET ACCESS
    */
-  async orchestrateCollaboration({ message, activeAvatars, chatHistory = [], onUpdate, selectedFiles = [], functionDefinitions = [] }) {
+  async orchestrateCollaboration({ message, activeAvatars, chatHistory = [], onUpdate, selectedFiles = [], selectedDataFeeds = [], functionDefinitions = [] }) {
     // Validate required parameters
     if (!message) {
       throw new Error('Message is required for collaboration');
@@ -38,6 +38,7 @@ class TeamCollaborationService {
       activeAvatars: safeActiveAvatars,
       chatHistory: safeChatHistory,
       selectedFiles: safeSelectedFiles,
+      selectedDataFeeds: Array.isArray(selectedDataFeeds) ? selectedDataFeeds : [],
       functionDefinitions: safeFunctionDefinitions, // 🌐 Pass internet access to team
       responses: [],
       contributions: [],
@@ -75,6 +76,7 @@ class TeamCollaborationService {
           collaboration,
           chatHistory: safeChatHistory,
           selectedFiles: safeSelectedFiles,
+          selectedDataFeeds: collaboration.selectedDataFeeds,
           contributionNumber: contributionCount,
           functionDefinitions: safeFunctionDefinitions // 🌐 INTERNET ACCESS FOR INDIVIDUAL AVATARS
         });
@@ -223,7 +225,7 @@ class TeamCollaborationService {
   /**
    * Get a team-aware contribution from an avatar
    */
-  async getTeamContribution({ message, contributor, collaboration, chatHistory, selectedFiles, contributionNumber, functionDefinitions }) {
+  async getTeamContribution({ message, contributor, collaboration, chatHistory, selectedFiles, selectedDataFeeds, contributionNumber, functionDefinitions }) {
     // Lazy load to avoid circular dependency
     const avatarService = require('./avatarService');
     
@@ -237,11 +239,13 @@ class TeamCollaborationService {
       teamContext.history,
       null, // onUpdate handled at higher level
       selectedFiles,
-      functionDefinitions // 🌐 Pass internet access to avatar
+      functionDefinitions, // 🌐 Pass internet access to avatar
+      selectedDataFeeds
     );
 
     // Extract the actual content
-    const content = response.responses?.[0]?.response || response.response || '';
+    const firstResponse = response.responses?.[0] || null;
+    const content = firstResponse?.response || response.response || '';
     
     // Parse for team signals
     const signals = this.parseTeamSignals(content);
@@ -251,6 +255,9 @@ class TeamCollaborationService {
       avatarName: contributor.name,
       category: contributor.category,
       content: content,
+      provider: firstResponse?.provider || null,
+      model: firstResponse?.model || null,
+      debug: firstResponse?.debug || null,
       contributionNumber,
       signals,
       timestamp: Date.now()
@@ -441,6 +448,9 @@ Your Contribution (#${contributionNumber}):`;
       avatarId: contrib.avatarId,
       avatarName: contrib.avatarName,
       response: contrib.content,
+      provider: contrib.provider || undefined,
+      model: contrib.model || undefined,
+      debug: contrib.debug || undefined,
       round: Math.ceil(contrib.contributionNumber / (collaboration.activeAvatars ? collaboration.activeAvatars.length : 1)),
       imageUrl: collaboration.activeAvatars ? collaboration.activeAvatars.find(m => m.id === contrib.avatarId)?.imageUrl || null : null,
       isThinking: false
@@ -458,11 +468,11 @@ Your Contribution (#${contributionNumber}):`;
   /**
    * Handle single avatar response (no collaboration needed)
    */
-  async singleAvatarResponse(message, avatar, chatHistory, onUpdate, selectedFiles) {
+  async singleAvatarResponse(message, avatar, chatHistory, onUpdate, selectedFiles, selectedDataFeeds = []) {
     // Lazy load to avoid circular dependency
     const avatarService = require('./avatarService');
     
-    const response = await avatarService.getResponse(message, avatar, chatHistory, onUpdate, selectedFiles);
+    const response = await avatarService.getResponse(message, avatar, chatHistory, onUpdate, selectedFiles, [], selectedDataFeeds);
     
     return {
       responses: response.responses || [{

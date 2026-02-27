@@ -4,24 +4,20 @@ import TeamList from './TeamList';
 import ModelStatusBox from './ModelStatusBox';
 
 /**
- * Component that provides a tabbed interface for Avatars and Teams
- * Using CLA brand colors from the style guide:
- * - Navy: #2d3c59
- * - Teal: #7dd2d3
- * - Light Cloud: #f7f7f6
+ * Component that provides a tabbed interface for Avatars and Teams.
  */
 const AvatarTeamTabs = ({ onAvatarToggle, activeAvatars, onTeamSelect }) => {
   const [activeTab, setActiveTab] = useState('avatars'); // 'avatars' or 'teams'
 
   return (
-    <div className="border rounded bg-[#f7f7f6] flex flex-col">
+    <div className="border border-slate-200 rounded-2xl bg-white/90 backdrop-blur flex flex-col shadow-md h-full">
       {/* Tab headers */}
-      <div className="flex border-b bg-white">
+      <div className="flex border-b bg-white/95 rounded-t-2xl">
         <button
           className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
             activeTab === 'avatars'
-              ? 'text-[#2d3c59] border-b-4 border-[#7dd2d3] font-bold'
-              : 'text-gray-500 hover:text-[#2d3c59]'
+              ? 'text-[#002466] border-b-4 border-[#819f3d] font-bold'
+              : 'text-gray-500 hover:text-[#002466]'
           }`}
           onClick={() => setActiveTab('avatars')}
         >
@@ -30,8 +26,8 @@ const AvatarTeamTabs = ({ onAvatarToggle, activeAvatars, onTeamSelect }) => {
         <button
           className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
             activeTab === 'teams'
-              ? 'text-[#2d3c59] border-b-4 border-[#7dd2d3] font-bold'
-              : 'text-gray-500 hover:text-[#2d3c59]'
+              ? 'text-[#002466] border-b-4 border-[#819f3d] font-bold'
+              : 'text-gray-500 hover:text-[#002466]'
           }`}
           onClick={() => setActiveTab('teams')}
         >
@@ -59,7 +55,7 @@ const AvatarTeamTabs = ({ onAvatarToggle, activeAvatars, onTeamSelect }) => {
       </div>
       
       {/* Status box moved below tabs for more avatar space */}
-      <div className="flex-shrink-0 p-2 border-t bg-[#f7f7f6]">
+      <div className="flex-shrink-0 p-2 border-t bg-slate-50 rounded-b-2xl">
         <ModelStatusBox />
       </div>
     </div>

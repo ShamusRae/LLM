@@ -9,6 +9,60 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}🚀 Starting LLM Chat Application with Dynamic Port Discovery${NC}"
 
+# Resolve Node runtime for MCP bridge compatibility (mcporter needs Node >=20)
+detect_node_major() {
+  node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo "0"
+}
+
+ensure_nvm_node() {
+  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+  if [ -s "${nvm_dir}/nvm.sh" ]; then
+    # shellcheck source=/dev/null
+    . "${nvm_dir}/nvm.sh"
+    local active_version
+    active_version=$(nvm current 2>/dev/null || echo "none")
+
+    # If current shell is not on an NVM-managed version, prefer default alias.
+    if [ "$active_version" = "none" ]; then
+      nvm use default >/dev/null 2>&1 || true
+    fi
+
+    # If still below Node 20, attempt direct use of v20.
+    local major
+    major=$(detect_node_major)
+    if [ "$major" -lt 20 ]; then
+      nvm use 20 >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+ensure_node_runtime() {
+  local current_major
+  local preferred_paths
+
+  # First try to align with user's nvm selection/default.
+  ensure_nvm_node
+
+  current_major=$(detect_node_major)
+  preferred_paths="${MCP_BRIDGE_PATH_PREFIX:-/opt/homebrew/bin:/usr/local/bin}"
+
+  if [ "$current_major" -lt 20 ]; then
+    echo -e "${YELLOW}⚠️ Active Node is v$(node -v 2>/dev/null || echo unknown). Trying preferred PATH for Node 20+...${NC}"
+    export PATH="${preferred_paths}:$PATH"
+    current_major=$(detect_node_major)
+  fi
+
+  echo -e "${BLUE}🧩 Runtime:${NC} node $(node -v 2>/dev/null || echo unknown) (major ${current_major})"
+
+  # Only enforce Node >=20 when using mcporter adapter
+  local bridge_provider="${MCP_BRIDGE_PROVIDER:-internal}"
+  if [ "$bridge_provider" = "mcporter" ] && [ "$current_major" -lt 20 ]; then
+    echo -e "${RED}❌ MCP bridge provider is set to mcporter, but Node <20 is active.${NC}"
+    echo -e "${YELLOW}Set MCP_BRIDGE_PATH_PREFIX to your Node 20+ bin path or switch MCP_BRIDGE_PROVIDER=internal.${NC}"
+    exit 1
+  fi
+}
+
 # Function to check if Ollama is running
 check_ollama() {
   echo -e "${YELLOW}🤖 Checking Ollama status...${NC}"
@@ -199,12 +253,15 @@ mv .env.temp .env
 
 echo -e "${GREEN}✅ Environment variables updated in .env file${NC}"
 
+# Ensure runtime is correct before starting services
+ensure_node_runtime
+
 # Check Ollama status before starting services
 check_ollama
 
 # Start services with pm2
 echo -e "${BLUE}🎬 Starting all services with pm2...${NC}"
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.js --update-env
 
 if [ $? -eq 0 ]; then
   echo -e "${GREEN}✅ All services started successfully!${NC}"

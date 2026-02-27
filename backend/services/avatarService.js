@@ -1,17 +1,26 @@
 'use strict';
 
 const aiService = require('./ai/aiService');
+const agentRunner = require('./ai/agentRunner');
 const fileService = require('./fileService');
 const modelService = require('./modelService');
+const mcpBridge = require('./mcpBridge');
 
-async function getResponse(message, avatar, previousResponses = [], onUpdate, selectedFiles = [], functionDefinitions = []) {
+async function getResponse(message, avatar, previousResponses = [], onUpdate, selectedFiles = [], functionDefinitions = [], selectedDataFeeds = []) {
   const { name, role, description, skills } = avatar;
   
   // NEW: Use model categories instead of specific models
   const modelCategory = avatar.modelCategory || avatar.selectedModel || 'General';
   
   // Resolve the actual model based on category (with offline preference if needed)
-  const isOfflinePreferred = process.env.OFFLINE_MODE === 'true' || !process.env.OPENAI_API_KEY;
+  const hasAnyCloudKey = Boolean(
+    process.env.OPENAI_API_KEY ||
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.CLAUDE_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GEMINI_API_KEY
+  );
+  const isOfflinePreferred = process.env.OFFLINE_MODE === 'true' || !hasAnyCloudKey;
   let resolvedModelId;
   
   try {
@@ -64,17 +73,19 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
   } else {
     // Fallback: Get from MCP for regular chat
     try {
-      const { mcpServer } = require('./mcpService');
       const enabledTools = avatar.enabledTools || [];
-      const availableTools = mcpServer.getAvailableTools();
+      const availableTools = mcpBridge.listTools();
+      const selectedFeeds = Array.isArray(selectedDataFeeds) && selectedDataFeeds.length > 0 ? selectedDataFeeds : null;
       
-      // If avatar has specific tools enabled, filter to those, otherwise use all
-      const toolsToUse = enabledTools.length > 0 
-        ? availableTools.filter(tool => enabledTools.includes(tool.id))
-        : availableTools;
+      // Intersect selected feeds with avatar-enabled tools when both are present.
+      const toolsToUse = availableTools.filter((tool) => {
+        const inAvatarTools = enabledTools.length > 0 ? enabledTools.includes(tool.id) : true;
+        const inSelectedFeeds = selectedFeeds ? selectedFeeds.includes(tool.id) : true;
+        return inAvatarTools && inSelectedFeeds;
+      });
         
       if (toolsToUse.length > 0) {
-        availableFunctionDefinitions = mcpServer.getFunctionDefinitions().filter(func => 
+        availableFunctionDefinitions = mcpBridge.getFunctionDefinitions().filter(func => 
           toolsToUse.some(tool => tool.id === func.id)
         );
         hasTools = true;
@@ -105,7 +116,13 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
   }
 
   // 4. Try to get the correct AI provider with fallback logic
-  const apiKey = providerName === 'openai' ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY;
+  const providerApiKeys = {
+    openai: process.env.OPENAI_API_KEY,
+    claude: process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY,
+    google: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY,
+    ollama: null
+  };
+  const apiKey = providerApiKeys[providerName];
   
   let provider, finalProviderName, finalModelId;
   try {
@@ -151,22 +168,14 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
 
   // 5. Generate the response using the provider
   try {
-    const response = await provider.generateResponse(userMessage, {
-      model: finalModelId,
-      systemMessage: systemMessage,
-      functionDefinitions: hasTools ? availableFunctionDefinitions : undefined, // Pass function definitions if tools are available
+    const { responseText } = await agentRunner.runAgent({
+      provider,
+      providerName: finalProviderName,
+      modelId: finalModelId,
+      userMessage,
+      systemMessage,
+      functionDefinitions: hasTools ? availableFunctionDefinitions : undefined
     });
-
-    let responseText;
-    if (finalProviderName === 'openai') {
-      responseText = response.choices[0].message.content;
-    } else if (finalProviderName === 'claude') {
-      responseText = response.content[0].text;
-    } else if (finalProviderName === 'ollama') {
-      responseText = response.response;
-    } else {
-      responseText = 'Response received but in unexpected format';
-    }
 
     if (onUpdate) {
       onUpdate({ response: responseText, isThinking: false });
@@ -195,7 +204,7 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
               thinkingContent: `Auto-escalated from ${modelCategory} to ${escalationCheck.targetCategory}`
             });
           }
-        }, selectedFiles);
+        }, selectedFiles, [], selectedDataFeeds);
         
         if (escalatedResult?.responses?.[0]?.response) {
           escalationResponse = {
@@ -221,6 +230,13 @@ async function getResponse(message, avatar, previousResponses = [], onUpdate, se
         provider: finalProviderName,
         model: escalationResponse?.model || finalModelId,
         category: escalationResponse?.escalatedTo || modelCategory,
+        debug: {
+          provider: finalProviderName,
+          model: escalationResponse?.model || finalModelId,
+          selectedDataFeeds: Array.isArray(selectedDataFeeds) ? selectedDataFeeds : [],
+          toolsAvailable: availableFunctionDefinitions.length,
+          enabledTools: avatar.enabledTools || []
+        },
         // Include escalation metadata
         ...(escalationResponse && {
           escalated: true,

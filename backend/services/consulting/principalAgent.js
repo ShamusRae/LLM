@@ -760,8 +760,8 @@ NO GENERIC STATEMENTS. Use real data and specific numbers wherever possible.`;
       console.log(`🎯 PRINCIPAL AI: Using intelligent router for ${taskType} WITH INTERNET ACCESS`);
       
       // 🌐 ENABLE INTERNET ACCESS: Get function definitions for real data
-      const { mcpServer } = require('../mcpService');
-      const functionDefinitions = mcpServer.getFunctionDefinitions();
+      const mcpBridge = require('../mcpBridge');
+      const functionDefinitions = mcpBridge.getFunctionDefinitions();
       
       console.log(`🔧 ENABLED ${functionDefinitions.length} real-data tools for AI analysis`);
       

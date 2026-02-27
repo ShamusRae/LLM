@@ -259,8 +259,8 @@ Respond with a JSON object.`;
       };
 
       // 🌐 ENABLE INTERNET ACCESS: Get function definitions for real data
-      const { mcpServer } = require('../mcpService');
-      const functionDefinitions = mcpServer.getFunctionDefinitions();
+      const mcpBridge = require('../mcpBridge');
+      const functionDefinitions = mcpBridge.getFunctionDefinitions();
       
       console.log(`🌐 PARTNER AGENT: Enabled ${functionDefinitions.length} internet tools for requirements analysis`);
 

@@ -189,7 +189,7 @@ server.tool(
   "yahoo-finance-stock-metric",
   {
     symbol: z.string().describe("Stock symbol (e.g., 'AAPL', 'MSFT', 'TSLA')"),
-    metric: z.string().describe("Stock metric to retrieve (e.g., 'currentPrice', 'marketCap', 'trailingPE')")
+    metric: z.string().optional().default('regularMarketPrice').describe("Stock metric to retrieve. Default is the latest live quote ('regularMarketPrice').")
   },
   async ({ symbol, metric }) => {
     try {
@@ -210,7 +210,7 @@ server.tool(
       }
       
       // Call the Yahoo Finance MCP integration service
-      return await yahooFinance.getStockMetric({ symbol, metric });
+      return await yahooFinance.getStockMetric({ symbol, metric: metric || 'regularMarketPrice' });
     } catch (error) {
       console.error("Yahoo Finance stock metric lookup error:", error);
       return {
@@ -718,7 +718,7 @@ server.getAvailableTools = function() {
     {
       id: "yahoo-finance-stock-metric",
       name: "Yahoo Finance Stock Metric",
-      description: "Get current stock metrics like price, market cap, P/E ratio, etc."
+      description: "Get latest live stock quote/metrics like regularMarketPrice, marketCap, trailingPE, etc."
     },
     {
       id: "yahoo-finance-historical-data",
@@ -755,7 +755,10 @@ server.callToolDirectly = async function(toolId, params) {
       };
     } else if (toolId === 'yahoo-finance-stock-metric') {
       // Call the Yahoo Finance integration service
-      return await yahooFinance.getStockMetric(params);
+      return await yahooFinance.getStockMetric({
+        ...params,
+        metric: params?.metric || 'regularMarketPrice'
+      });
     } else if (toolId === 'yahoo-finance-historical-data') {
       // Call the Yahoo Finance integration service
       return await yahooFinance.getHistoricalData(params);
@@ -1113,7 +1116,7 @@ server.getFunctionDefinitions = function() {
     {
       id: "yahoo-finance-stock-metric",
       name: "yahoo_finance_stock_metric",
-      description: "Get current stock metrics like price, market cap, P/E ratio, etc.",
+      description: "Get latest live stock quote/metrics like regularMarketPrice, marketCap, trailingPE, etc.",
       parameters: {
         type: "object",
         properties: {
@@ -1123,10 +1126,10 @@ server.getFunctionDefinitions = function() {
           },
           metric: {
             type: "string",
-            description: "Stock metric to retrieve (e.g., 'regularMarketPrice', 'marketCap', 'trailingPE')"
+            description: "Stock metric to retrieve. Optional, defaults to 'regularMarketPrice' for latest quote."
           }
         },
-        required: ["symbol", "metric"]
+        required: ["symbol"]
       }
     },
     {

@@ -1,6 +1,6 @@
 'use strict';
 
-const { mcpServer } = require('../services/mcpService');
+const mcpBridge = require('../services/mcpBridge');
 
 exports.chooseAvatar = async (req, res) => {
   try {
@@ -14,7 +14,7 @@ exports.chooseAvatar = async (req, res) => {
     console.log('🤝 Team collaboration setup for', activeAvatars.length, 'avatars');
 
     // Get available tools from MCP server
-    const availableTools = mcpServer.getAvailableTools();
+    const availableTools = mcpBridge.listTools();
     
     // Collect enabled tools from all active avatars
     let enabledTools = [];

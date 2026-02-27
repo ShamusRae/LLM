@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const net = require('net');
 
-require('dotenv').config({ path: '../.env' });
+require('./config'); // Load .env from project root before using process.env.PORT
 
 /* Global error handlers to prevent crashes */
 process.on('uncaughtException', (err) => {

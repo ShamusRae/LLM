@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { runFastConsultingEntry } = require('../services/consulting/consultingEntryRunner');
 
 /**
  * POST /api/consulting/start
@@ -325,22 +326,38 @@ router.post('/quick-test', async (req, res) => {
  */
 router.post('/fast-analysis', async (req, res) => {
   try {
-    const { query, context } = req.body;
+    const { query, context, model } = req.body;
     
     console.log('🚀 FAST ANALYSIS: Starting immediate investment analysis');
     
     // Extract companies from query
     const companies = extractCompaniesFromQuery(query);
     console.log(`📊 FAST ANALYSIS: Analyzing ${companies.join(' vs ')}`);
-    
-    // Generate immediate analysis
-    const analysis = await generateFastInvestmentAnalysis(companies, query, context);
+
+    // Try AI/tool-backed fast path first, then fall back to deterministic heuristic analysis.
+    let analysis;
+    let source = 'heuristic';
+    try {
+      const aiResult = await runFastConsultingEntry({ query, context, companies, model });
+      source = 'ai_runner';
+      analysis = {
+        executiveSummary: 'AI-powered fast analysis generated',
+        companies,
+        aiResponse: aiResult.raw,
+        timestamp: aiResult.timestamp,
+        model: aiResult.model
+      };
+    } catch (runnerError) {
+      console.warn('⚠️ FAST ANALYSIS: AI runner unavailable, using heuristic fallback:', runnerError.message);
+      analysis = await generateFastInvestmentAnalysis(companies, query, context);
+    }
     
     res.json({
       success: true,
       analysis: analysis,
       executionTime: Date.now() - req.startTime,
-      companies: companies
+      companies: companies,
+      source
     });
     
   } catch (error) {

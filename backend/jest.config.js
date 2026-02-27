@@ -6,6 +6,7 @@ module.exports = {
     '<rootDir>/tests/**/*.spec.js'
   ],
   collectCoverageFrom: [
+    'config/**/*.js',
     'services/**/*.js',
     'routes/**/*.js',
     'scripts/**/*.js',
@@ -22,5 +23,6 @@ module.exports = {
     '/coverage/'
   ],
   collectCoverage: false,
-  maxWorkers: 1 // Run tests sequentially to avoid database conflicts
+  maxWorkers: 1, // Run tests sequentially to avoid database conflicts
+  forceExit: true
 }; 

@@ -1,7 +1,7 @@
 const teamCollaborationService = require('./teamCollaborationService');
 const avatarService = require('./avatarService');
 
-exports.dispatch = async ({ message, avatarId, chatHistory = [], activeAvatars = [], offlineMode = false, selectedFiles = [], onUpdate }) => {
+exports.dispatch = async ({ message, avatarId, chatHistory = [], activeAvatars = [], offlineMode = false, selectedFiles = [], selectedDataFeeds = [], onUpdate }) => {
   console.log('Query dispatch started:', { message, avatarId, activeAvatarsCount: activeAvatars.length });
 
   try {
@@ -15,7 +15,7 @@ exports.dispatch = async ({ message, avatarId, chatHistory = [], activeAvatars =
       
       let response;
       try {
-        response = await avatarService.getResponse(message, avatar, chatHistory, onUpdate, selectedFiles);
+        response = await avatarService.getResponse(message, avatar, chatHistory, onUpdate, selectedFiles, [], selectedDataFeeds);
       } catch (error) {
         console.error('Error getting single avatar response:', error);
         response = {
@@ -34,7 +34,20 @@ exports.dispatch = async ({ message, avatarId, chatHistory = [], activeAvatars =
       return response;
     }
 
-    // For group responses, use the new team collaboration service
+    // For exactly one active avatar, skip collaboration loop to avoid duplicate rounds.
+    if (activeAvatars.length === 1) {
+      const singleAvatar = activeAvatars[0];
+      return await teamCollaborationService.singleAvatarResponse(
+        message,
+        singleAvatar,
+        chatHistory,
+        onUpdate,
+        selectedFiles,
+        selectedDataFeeds
+      );
+    }
+
+    // For group responses, use the team collaboration service
     console.log('🤝 Using team collaboration for', activeAvatars.length, 'avatars');
     
     const response = await teamCollaborationService.orchestrateCollaboration({
@@ -42,7 +55,8 @@ exports.dispatch = async ({ message, avatarId, chatHistory = [], activeAvatars =
       activeAvatars,
       chatHistory,
       onUpdate,
-      selectedFiles
+      selectedFiles,
+      selectedDataFeeds
     });
 
     console.log('✅ Team collaboration completed:', {
@@ -60,7 +74,7 @@ exports.dispatch = async ({ message, avatarId, chatHistory = [], activeAvatars =
     if (activeAvatars.length > 0) {
       try {
         const fallbackAvatar = activeAvatars[0];
-        const fallbackResponse = await avatarService.getResponse(message, fallbackAvatar, chatHistory, onUpdate, selectedFiles);
+        const fallbackResponse = await avatarService.getResponse(message, fallbackAvatar, chatHistory, onUpdate, selectedFiles, [], selectedDataFeeds);
         
         return {
           responses: fallbackResponse.responses || [{

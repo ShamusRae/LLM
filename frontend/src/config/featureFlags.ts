@@ -35,14 +35,13 @@ const defaultFlags: FeatureFlags = {
   stepValidation: true, // Step validation is enabled by default
 };
 
-// Environment-specific overrides
+// Environment-specific overrides (Vite exposes only import.meta.env.VITE_*)
 const envOverrides: Partial<FeatureFlags> = {
-  // Override flags based on environment variables
-  previewMode: process.env.REACT_APP_ENABLE_PREVIEW_MODE === 'true',
-  advancedSettings: process.env.REACT_APP_ENABLE_ADVANCED_SETTINGS === 'true',
-  analyticsEnabled: process.env.REACT_APP_ENABLE_ANALYTICS !== 'false',
-  autoSave: process.env.REACT_APP_ENABLE_AUTO_SAVE !== 'false',
-  stepValidation: process.env.REACT_APP_ENABLE_STEP_VALIDATION !== 'false',
+  previewMode: import.meta.env.VITE_ENABLE_PREVIEW_MODE === 'true',
+  advancedSettings: import.meta.env.VITE_ENABLE_ADVANCED_SETTINGS === 'true',
+  analyticsEnabled: import.meta.env.VITE_ENABLE_ANALYTICS !== 'false',
+  autoSave: import.meta.env.VITE_ENABLE_AUTO_SAVE !== 'false',
+  stepValidation: import.meta.env.VITE_ENABLE_STEP_VALIDATION !== 'false',
 };
 
 // Merge default flags with environment overrides
@@ -88,12 +87,10 @@ export const getFeatureGroup = <T extends FeatureGroup>(group: T): typeof featur
   return featureGroups[group];
 };
 
-// Development utilities
-if (process.env.NODE_ENV === 'development') {
+// Development utilities (Vite: import.meta.env.DEV)
+if (import.meta.env.DEV) {
   // Expose feature flags to window for development debugging
   (window as any).__FEATURE_FLAGS__ = featureFlags;
-  
-  // Log feature flag changes
   console.log('Feature Flags:', featureFlags);
 }
 
