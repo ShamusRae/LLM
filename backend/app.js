@@ -39,6 +39,7 @@ const teamRoutes = require('./routes/team.routes');
 const llmRoutes = require('./routes/llm.routes');
 const modelRoutes = require('./routes/model.routes');
 const consultingRoutes = require('./routes/consulting');
+const whatsappRoutes = require('./routes/whatsapp.routes');
 const chooseAvatarController = require('./controllers/chooseAvatar.controller');
 
 // Register routes
@@ -50,6 +51,7 @@ app.use('/api/team', teamRoutes);
 app.use('/api/llm', llmRoutes);
 app.use('/api/model', modelRoutes);
 app.use('/api/consulting', consultingRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 app.post('/api/choose-avatar', chooseAvatarController.chooseAvatar);
 
 // Health check endpoint

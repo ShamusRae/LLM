@@ -44,6 +44,8 @@ const findAvailablePort = (startPort) => {
 const startServer = async () => {
   try {
     await initializeStorageDirectories();
+    const whatsappService = require('./services/whatsappService');
+    await whatsappService.initialize();
     const port = await findAvailablePort(process.env.PORT || 3001);
     
     // Log all registered routes for debugging

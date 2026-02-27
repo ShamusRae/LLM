@@ -6,6 +6,11 @@ const AssociatePool = require('./associatePool');
 const ConsultingDatabase = require('../database/consultingDatabase');
 const IntelligentAIRouter = require('../ai/intelligentRouter');
 const ContextAwarePromptEngine = require('../ai/contextEngine');
+const CodePlanningAgent = require('./codePlanningAgent');
+const CodeExecutionAgent = require('./codeExecutionAgent');
+const CodeReviewAgent = require('./codeReviewAgent');
+const CodeDeliveryWorkflow = require('./codeDeliveryWorkflow');
+const { runFastConsultingEntry } = require('./consultingEntryRunner');
 
 /**
  * ConsultingOrchestrator - Main coordinator for formal consulting engagements
@@ -31,6 +36,14 @@ class ConsultingOrchestrator {
     this.partnerAgent = new PartnerAgent(config.partner, this.aiRouter, this.promptEngine);
     this.principalAgent = new PrincipalAgent(config.principal, this.aiRouter, this.promptEngine);
     this.associatePool = new AssociatePool(config.associates, this.aiRouter, this.promptEngine);
+    this.codePlanningAgent = new CodePlanningAgent();
+    this.codeExecutionAgent = new CodeExecutionAgent();
+    this.codeReviewAgent = new CodeReviewAgent();
+    this.codeDeliveryWorkflow = new CodeDeliveryWorkflow({
+      planningAgent: this.codePlanningAgent,
+      executionAgent: this.codeExecutionAgent,
+      reviewAgent: this.codeReviewAgent
+    });
     
     // Legacy support - will be removed in next phase
     this.activeProjects = new Map();
@@ -60,6 +73,27 @@ class ConsultingOrchestrator {
   setWebSocketService(wsService) {
     this.wsService = wsService;
     console.log('✅ WebSocket service connected to ConsultingOrchestrator');
+  }
+
+  async runWorkflowMode(mode, payload = {}, onUpdate) {
+    if (mode === 'code_delivery') {
+      return this.codeDeliveryWorkflow.run(payload, onUpdate);
+    }
+
+    const query = payload.query || '';
+    const context = payload.context || '';
+    const companies = Array.isArray(payload.companies) ? payload.companies : [];
+    const model = payload.model;
+    const analysis = await runFastConsultingEntry({ query, context, companies, model });
+    return {
+      success: true,
+      workflowMode: 'analysis_consulting',
+      analysis
+    };
+  }
+
+  getWorkflowDiagnostics() {
+    return this.codeDeliveryWorkflow.getDiagnostics();
   }
 
   /**

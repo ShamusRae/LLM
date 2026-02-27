@@ -5,6 +5,8 @@ const ModelStatusBox = () => {
   const [status, setStatus] = useState({
     connectivity: 'checking',
     services: {},
+    whatsapp: { enabled: false, connected: false, mode: 'webhook' },
+    workflow: { supportedModes: [], lastRun: null },
     modelMappings: {
       Strategic: 'Loading...',
       General: 'Loading...',
@@ -26,6 +28,10 @@ const ModelStatusBox = () => {
       const onlineServicesAvailable = healthData.services?.openai?.available || healthData.services?.claude?.available;
       const ollamaAvailable = healthData.services?.ollama?.available;
       const shouldPreferLocal = false; // Always prefer online models when available (user requested this)
+      const [whatsappResponse, workflowResponse] = await Promise.allSettled([
+        axios.get('/api/whatsapp/status'),
+        axios.get('/api/consulting/workflow-diagnostics')
+      ]);
       
       // Get current model mappings for each category
       const mappings = {};
@@ -64,6 +70,12 @@ const ModelStatusBox = () => {
       setStatus({
         connectivity: connectivityStatus,
         services: healthData.services || {},
+        whatsapp: whatsappResponse.status === 'fulfilled'
+          ? (whatsappResponse.value.data?.status || {})
+          : { enabled: false, connected: false, mode: 'unavailable' },
+        workflow: workflowResponse.status === 'fulfilled'
+          ? (workflowResponse.value.data?.diagnostics || { supportedModes: [], lastRun: null })
+          : { supportedModes: [], lastRun: null },
         modelMappings: mappings
       });
       
@@ -175,6 +187,26 @@ const ModelStatusBox = () => {
           </div>
         </div>
       )}
+
+      <div className="text-xs text-gray-600 mt-2 pt-2 border-t border-slate-100">
+        <div className="font-medium text-gray-700 mb-1">Channel + Workflow:</div>
+        <div className="flex items-center justify-between">
+          <span>WhatsApp</span>
+          <span className="font-mono">
+            {status.whatsapp?.enabled ? (status.whatsapp?.connected ? 'connected' : 'enabled') : 'disabled'}
+            {' '}
+            ({status.whatsapp?.mode || 'n/a'})
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>Workflow modes</span>
+          <span className="font-mono">{(status.workflow?.supportedModes || []).join(', ') || 'n/a'}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>Last stage</span>
+          <span className="font-mono">{status.workflow?.lastRun?.finalStage || 'n/a'}</span>
+        </div>
+      </div>
     </div>
   );
 };

@@ -371,6 +371,87 @@ router.post('/fast-analysis', async (req, res) => {
 });
 
 /**
+ * POST /api/consulting/workflow
+ * Unified workflow mode endpoint: analysis_consulting | code_delivery
+ */
+router.post('/workflow', async (req, res) => {
+  try {
+    const consultingOrchestrator = req.app.get('consultingOrchestrator');
+    if (!consultingOrchestrator) {
+      return res.status(500).json({
+        success: false,
+        error: 'Consulting infrastructure not initialized'
+      });
+    }
+
+    const workflowMode = req.body?.workflowMode || 'analysis_consulting';
+    const result = await consultingOrchestrator.runWorkflowMode(workflowMode, req.body, null);
+    return res.json({ success: true, workflowMode, result });
+  } catch (error) {
+    console.error('Error executing consulting workflow:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to execute workflow',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/consulting/code-delivery
+ * Convenience endpoint for code_delivery workflow mode.
+ */
+router.post('/code-delivery', async (req, res) => {
+  try {
+    const consultingOrchestrator = req.app.get('consultingOrchestrator');
+    if (!consultingOrchestrator) {
+      return res.status(500).json({
+        success: false,
+        error: 'Consulting infrastructure not initialized'
+      });
+    }
+
+    const result = await consultingOrchestrator.runWorkflowMode('code_delivery', req.body, null);
+    return res.json({ success: result.success, workflowMode: 'code_delivery', result });
+  } catch (error) {
+    console.error('Error in code-delivery workflow:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Code-delivery workflow failed',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/consulting/workflow-diagnostics
+ * Exposes channel/workflow diagnostics for frontend telemetry.
+ */
+router.get('/workflow-diagnostics', async (req, res) => {
+  try {
+    const consultingOrchestrator = req.app.get('consultingOrchestrator');
+    if (!consultingOrchestrator) {
+      return res.status(500).json({
+        success: false,
+        error: 'Consulting infrastructure not initialized'
+      });
+    }
+
+    return res.json({
+      success: true,
+      diagnostics: consultingOrchestrator.getWorkflowDiagnostics()
+    });
+  } catch (error) {
+    console.error('Error fetching workflow diagnostics:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch workflow diagnostics',
+      message: error.message
+    });
+  }
+});
+
+/**
  * Extract companies from investment query
  */
 function extractCompaniesFromQuery(query) {
