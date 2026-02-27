@@ -2,6 +2,14 @@
 
 A sophisticated LLM chat application featuring multi-model support, MCP tool integration, and real-time financial data access.
 
+## 📌 Release Notes (2026-02-27)
+
+- Added a secure WhatsApp channel adapter with inbound processing through the existing chat pipeline.
+- Added WhatsApp security controls: E.164 allowlist checks, rate limiting, payload caps, and token validation.
+- Added a new consulting `code_delivery` workflow mode: Planning -> Sandbox Execution -> Review -> Test Gate.
+- Added workflow/channel diagnostics endpoints and surfaced status in the UI.
+- Added unit and integration test coverage for WhatsApp security, sandbox execution, and workflow stage transitions.
+
 ## 🌟 Key Features
 
 ### **Smart Model Categories**
